@@ -1,0 +1,18 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "MyDev Workspace",
+  "version": "0.1.0",
+  "identifier": "com.mydev.workspace",
+  "build": {
+    "beforeDevCommand": "npm run demo",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "node scripts/build-desktop-smoke.mjs",
+    "frontendDist": "smoke"
+  },
+  "app": {
+    "windows": [
+      { "title": "MyDev Workspace", "width": 1280, "height": 850 }
+    ]
+  },
+  "bundle": { "active": true, "icon": ["icons/icon.png", "icons/icon.ico", "icons/icon.icns"] }
+}

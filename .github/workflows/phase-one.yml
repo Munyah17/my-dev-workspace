@@ -1,0 +1,41 @@
+name: Phase 1 smoke checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npx playwright install --with-deps chromium
+      - run: npm run smoke:web
+  desktop:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            bundle: nsis
+          - os: macos-latest
+            bundle: app
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+      - run: npx --yes @tauri-apps/cli@2 build --debug --bundles ${{ matrix.bundle }}
