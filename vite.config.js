@@ -12,4 +12,7 @@ function workspaceApi() {
   return { name: 'workspace-api', configureServer: configure, configurePreviewServer: configure }
 }
 
-export default defineConfig({ plugins: [react(), workspaceApi()] })
+export default defineConfig(({ command, mode }) => ({
+  plugins: [react(), command === 'serve' && mode !== 'vercel' && workspaceApi()],
+  server: mode === 'vercel' && process.env.PORT ? { port: Number(process.env.PORT), strictPort: true } : undefined,
+}))
