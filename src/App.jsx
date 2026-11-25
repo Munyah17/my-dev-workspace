@@ -1,3 +1,4 @@
+import { Inventory, OperationsAttention, Orders, Transactions } from './Operations.jsx'
 import { Billing, BillingAttention, CRM } from './Billing.jsx'
 import { useEffect, useState } from 'react'
 import './App.css'
@@ -5,7 +6,7 @@ import { Apps, Incident, NeedsAttention } from './Monitoring.jsx'
 import { DueTasks, Integrations, ReleaseAttention, ReleaseBoard, TaskBoard, TicketMaintenance } from './Maintenance.jsx'
 
 const states = ['New', 'In progress', 'Awaiting agency', 'Awaiting client', 'Resolved', 'Reopened']
-const sections = { today: 'Today', inbox: 'Client inbox', maintenance: 'Private maintenance', apps: 'Apps', incident: 'Incident', tasks: 'Tasks', settings: 'Workspace settings', releases: 'Releases', crm: 'CRM', billing: 'Billing' }
+const sections = { today: 'Today', inbox: 'Client inbox', maintenance: 'Private maintenance', apps: 'Apps', incident: 'Incident', tasks: 'Tasks', settings: 'Workspace settings', releases: 'Releases', crm: 'CRM', billing: 'Billing', orders: 'Orders', inventory: 'Inventory', transactions: 'Transactions' }
 const date = value => new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(value))
 
 async function api(path, body) {
@@ -175,7 +176,7 @@ export default function App() {
     </div>
   </main>
 
-  const privateMonitoring = (['apps','incident','tasks','settings','releases'].includes(route.section) && !user.agency) || (route.section==='crm' && !user.billing)
+  const privateMonitoring = (['apps','incident','tasks','settings','releases'].includes(route.section) && !user.agency) || (['crm','inventory','transactions'].includes(route.section) && !user.billing)
   const section = (route.section === 'maintenance' && !user.agency) || privateMonitoring ? 'inbox' : route.section
   const visibleTicket = ticket?.id === route.id ? ticket : null
   const unread = notifications.filter(item => !item.read)
@@ -183,8 +184,8 @@ export default function App() {
   return <div className="workspace">
     <aside className="sidebar">
       <Brand compact />
-      <nav aria-label="Workspace">{Object.entries(sections).filter(([key]) => key !== 'incident' && (key==='crm' ? user.billing : key==='billing' || ['today','inbox'].includes(key) || user.agency)).map(([key, label]) =>
-        <a key={key} href={'#' + key} aria-current={section === key ? 'page' : undefined}><span aria-hidden="true">{({today:'◉',inbox:'▤',maintenance:'◇',apps:'▦',tasks:'☑',settings:'⚙',releases:'▣',crm:'♙',billing:'▤'})[key]}</span>{label}</a>
+      <nav aria-label="Workspace">{Object.entries(sections).filter(([key]) => key !== 'incident' && (['crm','inventory','transactions'].includes(key) ? user.billing : ['billing','orders'].includes(key) || ['today','inbox'].includes(key) || user.agency)).map(([key, label]) =>
+        <a key={key} href={'#' + key} aria-current={section === key ? 'page' : undefined}><span aria-hidden="true">{({today:'◉',inbox:'▤',maintenance:'◇',apps:'▦',tasks:'☑',settings:'⚙',releases:'▣',crm:'♙',billing:'▤',orders:'▣',inventory:'▦',transactions:'◈'})[key]}</span>{label}</a>
       )}</nav>
       <div className="account">
         <div className="avatar" aria-hidden="true">{user.name.slice(0, 1)}</div>
@@ -202,7 +203,7 @@ export default function App() {
         <div className="heading">
           <div><h1>{sections[section]}</h1>
             <p>{section === 'today' ? 'Support activity across your authorized projects.' : section === 'inbox' ? 'Report an issue and keep the conversation in one place.' : section === 'maintenance' ? 'Review tickets, record internal notes, and prepare staging work.' : null}</p></div>
-          {!['apps','incident','tasks','settings','releases','crm','billing'].includes(section) && <a className="primary" href="#inbox/new">{user.agency ? 'New ticket' : 'Report an issue'}</a>}
+          {!['apps','incident','tasks','settings','releases','crm','billing','orders','inventory','transactions'].includes(section) && <a className="primary" href="#inbox/new">{user.agency ? 'New ticket' : 'Report an issue'}</a>}
         </div>
         {privateMonitoring ? <section className="panel"><p role="alert">Page not found.</p></section> : section === 'today' ? <>
           <div className="metrics">
@@ -210,7 +211,7 @@ export default function App() {
             <Metric label="Unread updates" value={unread.length} />
             <Metric label="Projects" value={projects.length} />
           </div>
-          {user.billing && <BillingAttention api={api} revision={revision} />}
+          {user.billing && <><BillingAttention api={api} revision={revision} /><OperationsAttention api={api} revision={revision} /></>}
           {user.agency && <><NeedsAttention data={monitoring} /><DueTasks api={api} revision={revision} /><ReleaseAttention api={api} revision={revision} /></>}
           <section className="panel">
             <h2>Notifications</h2>
@@ -227,6 +228,9 @@ export default function App() {
         </> : section === 'tasks' ? <TaskBoard api={api} revision={revision} actor={user.id} id={route.id} action={action} busy={busy} />
         : section === 'crm' ? <CRM api={api} revision={revision} action={action} busy={busy} recordId={route.id} />
         : section === 'billing' ? <Billing api={api} revision={revision} action={action} busy={busy} recordId={route.id} />
+        : section === 'orders' ? <Orders api={api} revision={revision} action={action} busy={busy} recordId={route.id} />
+        : section === 'inventory' ? <Inventory api={api} revision={revision} action={action} busy={busy} recordId={route.id} />
+        : section === 'transactions' ? <Transactions api={api} revision={revision} action={action} busy={busy} />
         : section === 'settings' ? <Integrations api={api} revision={revision} action={action} busy={busy} />
         : section === 'releases' ? <ReleaseBoard api={api} revision={revision} id={route.id} action={action} busy={busy} />
         : section === 'incident' ? route.id

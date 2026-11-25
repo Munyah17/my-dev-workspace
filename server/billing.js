@@ -6,21 +6,21 @@ const id = value => {
   if (!uuid.test(value ?? '')) throw fail(404,'Record not found.')
   return value
 }
-function text(value,max=160,required=true) {
+export function text(value,max=160,required=true) {
   if (!required && (value == null || value === '')) return ''
   if (typeof value !== 'string' || !value.trim() || value.length>max) throw fail(400,'Check the text fields.')
   return value.trim()
 }
-function integer(value,min,max) {
+export function integer(value,min,max) {
   if (!Number.isSafeInteger(value) || value<min || value>max) throw fail(400,'Check amounts and quantities.')
   return value
 }
-function date(value) {
+export function date(value) {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value) ||
     !Number.isFinite(Date.parse(value)) || new Date(value).toISOString().slice(0,10)!==value) throw fail(400,'Choose a valid date.')
   return value
 }
-function currency(value) {
+export function currency(value) {
   if (typeof value !== 'string' || !/^[A-Z]{3}$/.test(value)) throw fail(400,'Use a three-letter currency code.')
   return value
 }
@@ -83,7 +83,10 @@ export async function billingRoute(tx,{ method,pathname,body,account,search }) {
       const projects=await query('SELECT id,name FROM projects WHERE workspace_id=$1 AND organization_id=$2 ORDER BY name',[workspace,key])
       const tickets=await query(`SELECT t.id,t.subject,t.state FROM tickets t JOIN projects p ON p.id=t.project_id
         WHERE p.workspace_id=$1 AND p.organization_id=$2 ORDER BY t.created_at DESC LIMIT 25`,[workspace,key])
-      return { ...organization,profile,contacts,documents,services,projects,tickets }
+      const opsReady=(await query("SELECT to_regclass('workspace_private.ops_orders') IS NOT NULL AS ready"))[0].ready
+      const orders=opsReady ? await query(`SELECT id,number,state,currency,total_minor FROM ops_orders
+        WHERE workspace_id=$1 AND organization_id=$2 ORDER BY created_at DESC`,[workspace,key]) : []
+      return { ...organization,profile,contacts,documents,services,projects,tickets,orders }
     }
     if (method==='POST' && operation==='profile') {
       const status=body.status==='Inactive' ? 'Inactive':'Active'

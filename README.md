@@ -132,3 +132,11 @@ CRM uses the existing client organizations. Billing supports draft and issued qu
 Configure the confirmed Supabase project URL and publishable key together with the scoped `SUPABASE_DATABASE_URL` for the app. For an existing provisioned database, set the administrative Postgres connection as `SUPABASE_ADMIN_DATABASE_URL` in the migration environment and run `npm run billing:migrate`. For a fresh database, provision the workspace first. A Supabase API key does not supply the PostgreSQL connection required by these migrations.
 
 For unattended reminder generation, configure the `workspace_billing_worker` login and pass its scoped connection as `BILLING_DATABASE_URL` to the existing Fly worker. Today also materializes due reminders when opened. Both paths use the same unique service and due-date key. Reminder records do not create payments or expenses.
+
+## Phase 5 orders and inventory
+
+Convert an accepted quote from Billing or Orders. The order keeps the original line descriptions, quantities, prices, discounts, tax, and total. Classify each line before fulfillment. For a physical line, receive stock, reserve a unit, and confirm delivery. Serialized units are unique per workspace. The database creates an immutable stock movement for each change. Service lines complete independently of stock. Completed recurring lines can start a scheduled collection in Billing.
+
+Transactions combines issued invoices, manually recorded receipts, and supplier expenses by currency. Order totals do not add a second sale to that report. An expense can include a private receipt and a project or supplier subscription link. A supplier reminder does not post an expense or payment.
+
+For other environments, apply `npm run operations:migrate` after the billing schema. The Phase 5 migration was applied to MyDev Workspace Supabase project `tmtxchjvlkaemtimzwbc`. The live schema reports 10 operational tables with row-level security and the stock audit trigger. Operational workflow tests use embedded Postgres and the local demo browser.

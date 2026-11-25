@@ -62,6 +62,9 @@ export function CRM({ api,revision,action,busy,recordId }) {
     <details className="monitor-details" open><summary>Client activity</summary>
       {entry.projects.map(project=><p key={project.id} className="row">{project.name} · App</p>)}
       {entry.tickets.map(ticket=><a key={ticket.id} className="row ticket-link" href={'#inbox/'+ticket.id}>{ticket.subject} · {ticket.state}</a>)}
+      {entry.orders?.map(order=><a key={order.id} className="row ticket-link" href={'#orders/'+order.id}>
+        <strong>Order {order.number} · {order.state}</strong><span>{money(order.total_minor,order.currency)}</span>
+      </a>)}
       {entry.documents.map(document=><DocumentRow key={document.id} document={document} />)}
       {entry.services.map(service=><a key={service.id} className="row ticket-link" href={'#billing/service-'+service.id}>{service.name} · {iso(service.due_on)}</a>)}
     </details>
@@ -146,6 +149,10 @@ function Document({ api,recordId,revision,action,busy }) {
           <LineEditor initial={doc.lines} disabled={busy} /><button disabled={busy}>Save draft</button>
         </form>
       </details>}
+      {doc.staff && doc.kind==='quote' && doc.state==='accepted' && <button className="primary" disabled={busy} onClick={()=>action(async()=>{
+        const order=await api('operations/orders',{ quote:doc.id })
+        window.location.hash='orders/'+order.id
+      })}>Convert to order</button>}
       {doc.staff && doc.kind==='quote' && doc.state==='accepted' && <form className="fields" onSubmit={event=>{
         const values=form(event)
         action(async()=>{const result=await api('billing/documents/'+doc.id+'/convert',{ due:values.due });window.location.hash='billing/'+result.id})

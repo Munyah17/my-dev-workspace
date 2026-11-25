@@ -16,7 +16,8 @@
     "monitor:migrate": "node server/migrate.js",
     "monitor:worker": "node worker/index.js",
     "maintenance:migrate": "node server/migrate.js --maintenance",
-    "billing:migrate": "node server/migrate.js --billing"
+    "billing:migrate": "node server/migrate.js --billing",
+    "operations:migrate": "node server/migrate.js --operations"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.6.0",

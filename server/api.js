@@ -1,8 +1,9 @@
+import { operationsRoute } from './operations.js'
 import { billingRoute } from './billing.js'
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { openDatabase, scopedTransaction } from './database.js'
-import { migrateBilling, migrateMaintenance, migrateMonitoring } from './migrate.js'
+import { migrateBilling, migrateMaintenance, migrateMonitoring, migrateOperations } from './migrate.js'
 import { monitoringReady, monitoringRoute } from './monitoring.js'
 import { maintenanceRoute } from './maintenance.js'
 
@@ -34,6 +35,7 @@ export async function initialize(db, demo) {
     await migrateMonitoring(tx)
     await migrateMaintenance(tx)
     await migrateBilling(tx)
+    await migrateOperations(tx)
     if (!demo) return
     const seeded = await tx.query("SELECT id FROM workspaces WHERE id='demo'")
     if (seeded.rows.length) return
@@ -171,6 +173,7 @@ export async function createApi({ dataDir, demo = false, supabase } = {}) {
             `SELECT t.id,t.subject,t.state,p.name project,t.created_at FROM tickets t JOIN projects p ON p.id=t.project_id
              WHERE t.subject ILIKE '%' || $1 || '%' ORDER BY t.created_at DESC,t.id`, [new URL(req.url,'http://localhost').searchParams.get('q') ?? ''],
           )).rows
+          if (url.startsWith('/api/operations/')) return operationsRoute(tx,{ method,pathname:url,body,account,search:new URL(req.url,'http://localhost').searchParams })
           if (url.startsWith('/api/billing/')) return billingRoute(tx, { method, pathname:url, body, account, search:new URL(req.url,'http://localhost').searchParams })
           if (url.startsWith('/api/maintenance/')) return maintenanceRoute(tx, { method, pathname: url, body, account })
           if (url === '/api/monitoring' || url.startsWith('/api/monitoring/')) return monitoringRoute(tx, { method, pathname: url, body, account, addMessage })

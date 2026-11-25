@@ -67,6 +67,7 @@ export function Apps({ data, id, api, revision, busy, action }) {
   const workflows = useRecord(api, 'monitoring/workflows', revision)
   const detail = useRecord(api, id ? 'monitoring/monitor/' + id : null, revision)
   const selected = data?.monitors.find(item => item.id === id)
+  const costs = useRecord(api,project ? 'operations/project-costs/' + encodeURIComponent(project) : null,revision)
   const projectDetails = useRecord(api,project ? 'maintenance/projects/' + encodeURIComponent(project) : null,revision)
   const save = (path, value, after) => action(async () => {
     const result = await api(path, value)
@@ -115,6 +116,11 @@ export function Apps({ data, id, api, revision, busy, action }) {
             <small>{connection.health || 'Connection test pending'}</small>
           </div>
         </article>) : <p className="empty">No connections registered for this project.</p>}
+      </details>}
+      {costs.value?.length>0 && <details className="monitor-details">
+        <summary>Recorded project costs</summary>
+        {costs.value.map(cost=><div className="row" key={cost.currency}><strong>{cost.currency}</strong>
+          <small>Recorded {(Number(cost.recorded)/100).toFixed(2)} · Paid {(Number(cost.paid)/100).toFixed(2)}</small></div>)}
       </details>}
       {adding && <>
         <form className="fields" onSubmit={create}>
