@@ -65,3 +65,70 @@ The Vite build, lint, persistent API and policy tests, and desktop smoke asset b
 Import the repository root as one Vercel project. The `app` service builds the Vite UI. The `api` service runs the existing API through an Express entry point. Vercel sends browser requests under `/api/` to the API on the same origin, including attachment downloads. The frontend is static and the API calls external Supabase services, so this deployment has no server-to-server binding. Desktop packaging runs through the Tauri CI workflow.
 
 Provision Supabase as described above. Set `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and `SUPABASE_DATABASE_URL` for the appropriate Vercel environments. Keep administrative database credentials outside Vercel. For local routing tests, link the project with the current Vercel CLI and run `vercel dev`. Open the CLI-reported URL and check `/api/config` and the sign-in page on the same origin. Local development can also use `WORKSPACE_DEMO=1 vercel dev` with an isolated local database.
+
+## Phase 2 monitoring
+
+The Vercel API and Fly worker share the Supabase monitoring records. The worker has separate availability and Chromium lanes and keeps running when all MyDev clients are closed. In **Apps → Monitoring**, select a project and environment, then add an HTTPS availability check or a saved browser workflow. Technical evidence is agency-only. To communicate with a client, link their ticket and publish a plain-language update.
+
+### Migrate and deploy
+
+1. After provisioning Phase 1, apply the additive schema with `SUPABASE_ADMIN_DATABASE_URL` set and run `npm run monitor:migrate`. This preserves existing accounts and conversations. Until the migration is present, Phase 1 remains available and Apps displays the migration status.
+2. In Supabase, give `workspace_monitor_worker` its own login and password. Set `MONITOR_DATABASE_URL` to the SSL-verified connection using that role. It can claim, finish, and report worker jobs through the monitoring functions. The Vercel API keeps its existing gateway role.
+3. In the intended Fly organization, use the confirmed MyDev worker app name. The name in `fly.toml` is a template. Import `MONITOR_DATABASE_URL` and any workflow secrets with `fly secrets import --app "$MYDEV_MONITOR_FLY_APP"`. Run `fly deploy --app "$MYDEV_MONITOR_FLY_APP" --ha=false` from the repository root. Check `fly machine list --app "$MYDEV_MONITOR_FLY_APP"` for one started Machine. The worker exposes no HTTP listener and the Fly configuration has no idle auto-stop.
+4. Open the same HTTPS workspace in the mobile PWA and desktop clients. Build Tauri with `WORKSPACE_DESKTOP_URL` set to that origin to load it in the Windows and macOS shells. An unset value retains the desktop smoke shell or local development frontend.
+
+### Workflow credentials
+
+Fly secret names follow `MONITOR_SECRET_<UPPERCASE PROJECT ID IN HEX>_<ENVIRONMENT>_<SECRET NAME>`. For `gents-staff` on Staging with `STAFF_TEST`, use `MONITOR_SECRET_67656E74732D7374616666_STAGING_STAFF_TEST`. The JSON value has an `origin` matching the monitor origin and a `values` object. Fill steps reference the fields by name. Credential-related steps should specify `"credential": true` so a failed sign-in is classified appropriately. The worker saves short result descriptions and never saves screenshots, console text, raw responses, or secret values.
+
+Staging is the default for write-capable workflows. Production requires a matching origin, a dedicated test account and record named by the `TEST_ACCOUNT` and `TEST_RECORD` secret fields, exact `signInPaths`, `writePaths`, and `cleanupPaths` arrays, and cleanup steps that end in a verification assertion. Configure the target app to restrict the test account to its test records and operations. Cleanup is attempted after a write and failed cleanup becomes a monitor alert.
+
+### The Gents staging pilot
+
+Serve `node fixtures/gents/server.js` on a controlled public staging HTTPS origin with `FIXTURE_PASSWORD` and `FIXTURE_CONTROL_TOKEN` set. The fixture uses disposable in-memory data. Import the steps for [the fixture workflow](fixtures/gents/workflow.json) into Apps and configure its test account as `mydev-staff-test` and its record as `MyDev Test Barber`. Add an availability monitor for the fixture homepage and a workflow monitor on the same origin.
+
+The fixture starts in `lost` mode. Its bearer-protected `POST /control` accepts a form field called `mode` with `lost`, `saved`, or `expired`. Close the MyDev clients and wait for two scheduled workflow failures and a healthy homepage observation. Reopen Today to check the single incident. Restart the same Machine, then switch to `saved` and wait for scheduled recovery. Use `expired` to check monitor alerts, stop the Machine to observe stale monitoring, and schedule a maintenance window to check suppression. Use a second client account to verify ticket and monitoring isolation.
+
+Locally, `npm test` checks Phase 1 regression, destination validation, durable job and lease behavior, incident and alert deduplication, maintenance suppression, coverage gaps, and tenant isolation. Run `MONITOR_BROWSER_TEST=1 node --test fixtures/gents/browser.test.js` with Playwright Chromium installed for the controlled browser scenario. The local browser test replaces the production socket transport with a loopback fixture. The live Fly and Supabase staging acceptance check remains separate.
+
+Phase 2 verification passed locally with embedded Postgres and Chromium. Both browser smoke tests passed, including the Phase 1 mobile-to-desktop ticket flow and agency monitor creation, queuing, and second-client isolation. The separate Chromium fixture test passed for lost records, verified persistence in a fresh session, and rejected credentials. Fly deployment, Supabase staging, and native desktop packaging remain unverified.
+
+## Brand assets
+
+Use the [horizontal logo](public/mydev-workspace-logo.png) where the full name is legible and the [emblem](public/icon-512.png) for launchers and compact spaces. Give the mark clear space equal to at least one-quarter of the emblem width. In maintenance reports, use the full logo. In quotes and invoices, lead with the issuing agency’s name and logo and credit MyDev Workspace as the software. Use specific, actionable notification copy such as “The Gents · Staff sign-in failed at 09:14” with “Review incident”.
+
+## Phase 3 maintenance pilot
+
+This phase builds on the ticket system, existing project permissions and monitoring workflows, and the Fly worker. The first release route is manual cPanel Git deployment with preflight and post-release verification.
+
+1. Run `npm run maintenance:migrate` against the intended Supabase workspace using its administrative connection. Give `workspace_maintenance_worker` a scoped login and set `MAINTENANCE_DATABASE_URL` on the Fly worker. Keep the Phase 2 monitor connection separately configured.
+2. In Workspace settings, register the authorized GitHub App installation, repository and branch for the project. Restrict the repository to the PHP files that the investigation may read or propose changes to. Successful registration and read tests leave pull-request capability unverified until a real pull request is created.
+3. Register the agency’s OpenAI model and credential reference for each explicitly authorized project. GitHub, cPanel, and agent credential values belong in Fly secrets. For a credential reference called `PILOT`, use these names and JSON fields.
+
+   | Credential | Fly secret name | JSON fields |
+   | --- | --- | --- |
+   | GitHub | `MAINTENANCE_GITHUB_<UPPERCASE PROJECT ID IN HEX>_PILOT` | `appId`, `privateKey` |
+   | Maintenance agent | `MAINTENANCE_AGENT_<UPPERCASE WORKSPACE ID IN HEX>_PILOT` | `apiKey` |
+   | cPanel | `MAINTENANCE_CPANEL_<UPPERCASE PROJECT ID IN HEX>_PILOT` | `username`, `token` |
+
+4. Register each cPanel site and environment with its document root, cPanel Git repository root, verified baseline, runtime exclusions, and existing monitor. The cPanel service origin must support HTTPS UAPI on its port-443 service subdomain. The deployed site must serve `/release.json` with the current `commit` SHA. Generate that marker only after the host’s release steps complete successfully. Confirm the installed Git baseline and preserve server configuration, uploads, and persistent data in the site's deployment recipe.
+5. Open the ticket in Private maintenance. Create or link a task, choose its owner, then submit a scoped staging investigation. MyDev records either a reproduction and proposal, or what blocked the investigation. Review the draft PR and deploy the proposed SHA to staging through the site's approved procedure. Verify staging before approving that same SHA and production target.
+6. Start the release to run preflight. The release lists the approved SHA and target before the operator uses cPanel Git Version Control to release it. Verify the target afterward. The known previous SHA is reference evidence for the site's existing rollback procedure. Automated Git push and rollback require a supported host path and are not part of this manual pilot. Use the original ticket to publish the client update.
+
+The [Gents PHP fixture](fixtures/gents-php) accepts only the named test account `mydev-staff-test` and record `MyDev Test Barber`. Host it on disposable HTTPS staging, set `GENTS_FIXTURE_PASSWORD` and `GENTS_FIXTURE_DATA` to a writable directory outside the document root, and import the [PHP fixture workflow](fixtures/gents-php/workflow.json) in Apps. Use its final assertion label as the expected failure step in the staging connection. Setting `GENTS_FIXTURE_MODE=lost` makes the row appear in its original session but disappear after a fresh sign-in. The corrected fixture uses durable storage. For an actual candidate test, put the session-only baseline in a staging branch and verify a reviewed code change that reaches the durable storage path.
+
+Local verification passed in embedded Postgres, Chromium, and a temporary PHP 8.3 runtime. The database test used simulated worker responses for provider operations and verified scope, recovered leases, approval gating, manual verification states, and failed production checks. The PHP runtime reproduced baseline loss and verified corrected persistence and branch assignment across separate sign-ins. Live GitHub, OpenAI, cPanel, Supabase, and Fly operations require the intended environment and credentials.
+
+## Later phases
+
+- [Phase 4 implementation brief](docs/phase-4.md)
+- [Phase 5 implementation brief](docs/phase-5.md), which depends on the Phase 4 commercial records and migrations.
+- [Phase 6 implementation brief](docs/phase-6.md)
+
+## Phase 4 billing
+
+CRM uses the existing client organizations. Billing supports draft and issued quotations and invoices, client acceptance, quote conversion, manual receipts, and independent renewal reminders. The client portal shows issued documents to an authorized client manager. Use the document’s **Print or save as PDF** action to export using the browser.
+
+Configure the confirmed Supabase project URL and publishable key together with the scoped `SUPABASE_DATABASE_URL` for the app. For an existing provisioned database, set the administrative Postgres connection as `SUPABASE_ADMIN_DATABASE_URL` in the migration environment and run `npm run billing:migrate`. For a fresh database, provision the workspace first. A Supabase API key does not supply the PostgreSQL connection required by these migrations.
+
+For unattended reminder generation, configure the `workspace_billing_worker` login and pass its scoped connection as `BILLING_DATABASE_URL` to the existing Fly worker. Today also materializes due reminders when opened. Both paths use the same unique service and due-date key. Reminder records do not create payments or expenses.

@@ -5,7 +5,7 @@ import { createApi } from './api.js'
 import { appConfig } from './config.js'
 
 const root = resolve('dist')
-const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.webmanifest': 'application/manifest+json' }
+const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.woff2': 'font/woff2', '.webmanifest': 'application/manifest+json' }
 await readFile(resolve(root, 'index.html'))
 const api = await createApi(appConfig())
 const server = createServer((req, res) => {

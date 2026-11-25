@@ -1,8 +1,11 @@
+import { Billing, BillingAttention, CRM } from './Billing.jsx'
 import { useEffect, useState } from 'react'
 import './App.css'
+import { Apps, Incident, NeedsAttention } from './Monitoring.jsx'
+import { DueTasks, Integrations, ReleaseAttention, ReleaseBoard, TaskBoard, TicketMaintenance } from './Maintenance.jsx'
 
 const states = ['New', 'In progress', 'Awaiting agency', 'Awaiting client', 'Resolved', 'Reopened']
-const sections = { today: 'Today', inbox: 'Client inbox', maintenance: 'Private maintenance' }
+const sections = { today: 'Today', inbox: 'Client inbox', maintenance: 'Private maintenance', apps: 'Apps', incident: 'Incident', tasks: 'Tasks', settings: 'Workspace settings', releases: 'Releases', crm: 'CRM', billing: 'Billing' }
 const date = value => new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(value))
 
 async function api(path, body) {
@@ -41,6 +44,8 @@ export default function App() {
   const [tickets, setTickets] = useState([])
   const [projects, setProjects] = useState([])
   const [notifications, setNotifications] = useState([])
+  const [monitoring, setMonitoring] = useState(null)
+  const [monitoringError, setMonitoringError] = useState('')
   const [ticket, setTicket] = useState(null)
   const [query, setQuery] = useState('')
   const [searchResults, setSearchResults] = useState(null)
@@ -54,6 +59,8 @@ export default function App() {
     setTickets([])
     setProjects([])
     setNotifications([])
+    setMonitoring(null)
+    setMonitoringError('')
     setTicket(null)
     setQuery('')
     setSearchResults(null)
@@ -86,6 +93,17 @@ export default function App() {
   }, [user, revision])
 
   useEffect(() => {
+    if (!user?.agency) return
+    let active = true
+    const refresh = () => api('monitoring')
+      .then(data => { if (active) { setMonitoring(data); setMonitoringError('') } })
+      .catch(error => { if (active) { setMonitoring(null); setMonitoringError(error.message) } })
+    refresh()
+    const timer = setInterval(refresh, 4000)
+    return () => { active = false; clearInterval(timer) }
+  }, [user, revision])
+
+  useEffect(() => {
     if (!user || !query.trim()) return
     let active = true
     api('tickets?q=' + encodeURIComponent(query.trim()))
@@ -95,7 +113,7 @@ export default function App() {
   }, [user, query, revision])
 
   useEffect(() => {
-    if (!user || !route.id || route.id === 'new') return
+    if (!user || !['inbox','maintenance'].includes(route.section) || !route.id || route.id === 'new') return
     let active = true
     const refresh = () => api('tickets/' + encodeURIComponent(route.id))
       .then(result => { if (active) { setTicket(result); setDetailError('') } })
@@ -103,7 +121,7 @@ export default function App() {
     refresh()
     const timer = setInterval(refresh, 4000)
     return () => { active = false; clearInterval(timer) }
-  }, [user, route.id, revision])
+  }, [user, route.section, route.id, revision])
 
   async function action(task) {
     setBusy(true)
@@ -157,19 +175,20 @@ export default function App() {
     </div>
   </main>
 
-  const section = route.section === 'maintenance' && !user.agency ? 'inbox' : route.section
+  const privateMonitoring = (['apps','incident','tasks','settings','releases'].includes(route.section) && !user.agency) || (route.section==='crm' && !user.billing)
+  const section = (route.section === 'maintenance' && !user.agency) || privateMonitoring ? 'inbox' : route.section
   const visibleTicket = ticket?.id === route.id ? ticket : null
   const unread = notifications.filter(item => !item.read)
   const displayedTickets = query.trim() ? searchResults ?? [] : tickets
   return <div className="workspace">
     <aside className="sidebar">
-      <Brand />
-      <nav aria-label="Workspace">{Object.entries(sections).filter(([key]) => key !== 'maintenance' || user.agency).map(([key, label], index) =>
-        <a key={key} href={'#' + key} aria-current={section === key ? 'page' : undefined}><span aria-hidden="true">{['◉', '▤', '◇'][index]}</span>{label}</a>
+      <Brand compact />
+      <nav aria-label="Workspace">{Object.entries(sections).filter(([key]) => key !== 'incident' && (key==='crm' ? user.billing : key==='billing' || ['today','inbox'].includes(key) || user.agency)).map(([key, label]) =>
+        <a key={key} href={'#' + key} aria-current={section === key ? 'page' : undefined}><span aria-hidden="true">{({today:'◉',inbox:'▤',maintenance:'◇',apps:'▦',tasks:'☑',settings:'⚙',releases:'▣',crm:'♙',billing:'▤'})[key]}</span>{label}</a>
       )}</nav>
       <div className="account">
         <div className="avatar" aria-hidden="true">{user.name.slice(0, 1)}</div>
-        <div><strong>{user.name}</strong><small>{user.agency ? 'Agency' : 'Client'}</small></div>
+        <div><strong>{user.name}</strong><small>{user.agency || user.billing ? 'Agency' : 'Client'}</small></div>
         <button disabled={busy} onClick={() => action(async () => {
           await api('logout', {})
           clearSession()
@@ -182,25 +201,38 @@ export default function App() {
         {error && <p role="alert" className="error">{error}</p>}
         <div className="heading">
           <div><h1>{sections[section]}</h1>
-            <p>{section === 'today' ? 'Support activity across your authorized projects.' : section === 'inbox' ? 'Report an issue and keep the conversation in one place.' : 'Review tickets, record internal notes, and prepare staging work.'}</p></div>
-          <a className="primary" href="#inbox/new">{user.agency ? 'New ticket' : 'Report an issue'}</a>
+            <p>{section === 'today' ? 'Support activity across your authorized projects.' : section === 'inbox' ? 'Report an issue and keep the conversation in one place.' : section === 'maintenance' ? 'Review tickets, record internal notes, and prepare staging work.' : null}</p></div>
+          {!['apps','incident','tasks','settings','releases','crm','billing'].includes(section) && <a className="primary" href="#inbox/new">{user.agency ? 'New ticket' : 'Report an issue'}</a>}
         </div>
-        {section === 'today' ? <>
+        {privateMonitoring ? <section className="panel"><p role="alert">Page not found.</p></section> : section === 'today' ? <>
           <div className="metrics">
             <Metric label="Open tickets" value={tickets.filter(item => item.state !== 'Resolved').length} />
             <Metric label="Unread updates" value={unread.length} />
             <Metric label="Projects" value={projects.length} />
           </div>
+          {user.billing && <BillingAttention api={api} revision={revision} />}
+          {user.agency && <><NeedsAttention data={monitoring} /><DueTasks api={api} revision={revision} /><ReleaseAttention api={api} revision={revision} /></>}
           <section className="panel">
             <h2>Notifications</h2>
             {notifications.length ? notifications.map(item => <div key={item.id} className="row">
-              <a href={'#inbox/' + item.ticket_id} onClick={() => {
+              <a href={item.incident_id ? '#incident/' + item.incident_id : item.monitor_id ? '#apps/' + item.monitor_id : '#inbox/' + item.ticket_id} onClick={() => {
                 if (!item.read) action(() => api('notifications/' + item.id + '/read', {}))
-              }}><strong>{item.subject}</strong><small>{date(item.created_at)}</small></a>
+              }}><strong>{item.subject}</strong><small>{date(item.created_at)}{item.incident_id ? ' · Review incident' : item.monitor_id ? ' · Review monitor' : ''}</small></a>
               {!item.read && <span className="badge">Unread</span>}
             </div>) : <p className="empty">New ticket activity will appear here.</p>}
           </section>
-        </> : <div className="inbox">
+        </> : section === 'apps' ? <>
+          {monitoringError && <p role="alert" className="error">{monitoringError}</p>}
+          <Apps data={monitoring} id={route.id} api={api} revision={revision} busy={busy} action={action} />
+        </> : section === 'tasks' ? <TaskBoard api={api} revision={revision} actor={user.id} id={route.id} action={action} busy={busy} />
+        : section === 'crm' ? <CRM api={api} revision={revision} action={action} busy={busy} recordId={route.id} />
+        : section === 'billing' ? <Billing api={api} revision={revision} action={action} busy={busy} recordId={route.id} />
+        : section === 'settings' ? <Integrations api={api} revision={revision} action={action} busy={busy} />
+        : section === 'releases' ? <ReleaseBoard api={api} revision={revision} id={route.id} action={action} busy={busy} />
+        : section === 'incident' ? route.id
+          ? <Incident id={route.id} api={api} revision={revision} busy={busy} action={action} />
+          : <p className="empty">Select an incident from Today.</p>
+        : <div className="inbox">
           <section className="panel ticket-list">
             <h2>Tickets</h2>
             <label className="search">Search tickets<input type="search" placeholder="Search by subject" value={query} onChange={event => { setSearchResults(null); setQuery(event.target.value) }} /></label>
@@ -222,7 +254,7 @@ export default function App() {
               <div className="thread-heading"><div><small>{visibleTicket.project}</small><h2>{visibleTicket.subject}</h2></div>
                 {visibleTicket.agency ? <label className="state">Status<select value={visibleTicket.state} disabled={busy} onChange={event => action(() => api('tickets/' + visibleTicket.id + '/state', { state: event.target.value }))}>{states.map(state => <option key={state}>{state}</option>)}</select></label> : <span className="badge">{visibleTicket.state}</span>}
               </div>
-              {section === 'maintenance' && <p className="notice">Engineering agent, staging, GitHub, and cPanel integrations are unconfigured.</p>}
+              {section === 'maintenance' && <TicketMaintenance key={visibleTicket.id} api={api} revision={revision} ticketId={visibleTicket.id} action={action} busy={busy} />}
               <div className="messages">{visibleTicket.messages.map(message => <article key={message.id} className={message.internal ? 'message internal' : message.mine ? 'message mine' : 'message'}>
                 <div><strong>{message.author}</strong>{message.internal && <span className="badge">Internal note</span>}<small>{date(message.created_at)}</small></div>
                 <p>{message.body}</p>
@@ -242,8 +274,11 @@ export default function App() {
   </div>
 }
 
-function Brand() {
-  return <div className="brand"><span aria-hidden="true">M</span>MyDev Workspace</div>
+function Brand({ compact = false }) {
+  return <picture className="brand">
+    {compact && <source media="(621px <= width <= 900px)" srcSet="/icon-192.png" />}
+    <img src="/mydev-workspace-logo.png" alt="MyDev Workspace" />
+  </picture>
 }
 
 function Metric({ label, value }) {

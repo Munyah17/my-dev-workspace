@@ -1,6 +1,10 @@
+import { billingRoute } from './billing.js'
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { openDatabase, scopedTransaction } from './database.js'
+import { migrateBilling, migrateMaintenance, migrateMonitoring } from './migrate.js'
+import { monitoringReady, monitoringRoute } from './monitoring.js'
+import { maintenanceRoute } from './maintenance.js'
 
 const migration = new URL('./schema.sql', import.meta.url)
 const digest = token => createHash('sha256').update(token).digest('hex')
@@ -27,6 +31,9 @@ export async function initialize(db, demo) {
   await scopedTransaction(db, async tx => {
     const { rows } = await tx.query("SELECT to_regclass('workspace_private.workspaces') AS initialized")
     if (!rows[0].initialized) await tx.exec(await readFile(migration, 'utf8'))
+    await migrateMonitoring(tx)
+    await migrateMaintenance(tx)
+    await migrateBilling(tx)
     if (!demo) return
     const seeded = await tx.query("SELECT id FROM workspaces WHERE id='demo'")
     if (seeded.rows.length) return
@@ -144,7 +151,7 @@ export async function createApi({ dataDir, demo = false, supabase } = {}) {
           return send(200, { signedIn: true })
         }
         const { rows: [account] } = token ? await query(
-          `SELECT a.id,a.name,a.email,coalesce(bool_or(m.role IN ('owner','support')),false) agency
+          `SELECT a.id,a.name,a.email,coalesce(bool_or(m.role IN ('owner','support')),false) agency, coalesce(bool_or(m.role IN ('owner','finance')),false) billing
            FROM sessions s JOIN accounts a ON a.id=s.account_id LEFT JOIN memberships m ON m.account_id=a.id
            WHERE s.token_hash=$1 AND s.expires_at>now() GROUP BY a.id`, [digest(token)],
         ) : { rows: [] }
@@ -164,6 +171,23 @@ export async function createApi({ dataDir, demo = false, supabase } = {}) {
             `SELECT t.id,t.subject,t.state,p.name project,t.created_at FROM tickets t JOIN projects p ON p.id=t.project_id
              WHERE t.subject ILIKE '%' || $1 || '%' ORDER BY t.created_at DESC,t.id`, [new URL(req.url,'http://localhost').searchParams.get('q') ?? ''],
           )).rows
+          if (url.startsWith('/api/billing/')) return billingRoute(tx, { method, pathname:url, body, account, search:new URL(req.url,'http://localhost').searchParams })
+          if (url.startsWith('/api/maintenance/')) return maintenanceRoute(tx, { method, pathname: url, body, account })
+          if (url === '/api/monitoring' || url.startsWith('/api/monitoring/')) return monitoringRoute(tx, { method, pathname: url, body, account, addMessage })
+          if (method === 'GET' && url === '/api/notifications' && account.agency && await monitoringReady(tx)) {
+            return (await tx.query(`
+              SELECT * FROM (
+                SELECT msg.id,msg.ticket_id,NULL::uuid AS incident_id,NULL::uuid AS monitor_id,t.subject,msg.created_at,(r.message_id IS NOT NULL) AS read
+                FROM messages msg JOIN tickets t ON t.id=msg.ticket_id LEFT JOIN notification_reads r ON r.message_id=msg.id
+                WHERE msg.author_id<>actor()
+                UNION ALL
+                SELECT e.id,NULL::uuid,e.incident_id,e.monitor_id,
+                  p.name || ' · ' || m.name || ' · ' || CASE e.kind WHEN 'incident' THEN 'Incident opened' WHEN 'recovery' THEN 'Recovered' ELSE 'Monitor needs attention' END,
+                  e.created_at,(r.event_id IS NOT NULL)
+                FROM monitoring_events e JOIN monitors m ON m.id=e.monitor_id JOIN projects p ON p.id=m.project_id
+                LEFT JOIN monitoring_event_reads r ON r.event_id=e.id
+              ) activity ORDER BY created_at DESC LIMIT 100`)).rows
+          }
           if (method === 'GET' && url === '/api/notifications') return (await tx.query(
             `SELECT m.id,m.ticket_id,t.subject,m.created_at,(r.message_id IS NOT NULL) AS read
              FROM messages m JOIN tickets t ON t.id=m.ticket_id
@@ -172,6 +196,9 @@ export async function createApi({ dataDir, demo = false, supabase } = {}) {
           )).rows
           const notice = match(url, `/api/notifications/(${ticketId})/read`)
           if (method === 'POST' && notice) {
+            if (account.agency && await monitoringReady(tx)) {
+              await tx.query('INSERT INTO monitoring_event_reads SELECT actor(),id FROM monitoring_events WHERE id=$1 ON CONFLICT DO NOTHING', [notice[1]])
+            }
             await tx.query('INSERT INTO notification_reads SELECT actor(),id FROM messages WHERE id=$1 AND author_id<>actor() ON CONFLICT DO NOTHING', [notice[1]])
             return { saved: true }
           }

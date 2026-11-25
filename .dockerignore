@@ -1,0 +1,8 @@
+**
+!package.json
+!package-lock.json
+!server
+!server/database.js
+!worker
+!worker/*.js
+!worker/Dockerfile

@@ -1,0 +1,107 @@
+{
+  "name": "Staff record persistence",
+  "secretName": "STAFF_TEST",
+  "writes": true,
+  "steps": [
+    {
+      "action": "navigate",
+      "label": "Open the staff sign-in page",
+      "path": "/"
+    },
+    {
+      "action": "fill",
+      "label": "Enter the test account",
+      "selector": "#test-account",
+      "secret": "TEST_ACCOUNT"
+    },
+    {
+      "action": "fill",
+      "label": "Enter the test credential",
+      "selector": "#test-password",
+      "secret": "TEST_PASSWORD"
+    },
+    {
+      "action": "click",
+      "label": "Sign into staging",
+      "selector": "#test-sign-in",
+      "credential": true
+    },
+    {
+      "action": "assert",
+      "label": "Confirm test account access",
+      "selector": "#signed-in",
+      "value": "Staff workspace",
+      "credential": true
+    },
+    {
+      "action": "fill",
+      "label": "Enter the test record",
+      "selector": "#staff-name",
+      "secret": "TEST_RECORD"
+    },
+    {
+      "action": "fill",
+      "label": "Assign the test branch",
+      "selector": "#staff-branch",
+      "value": "Pilot branch"
+    },
+    {
+      "action": "click",
+      "label": "Save the test record",
+      "selector": "#save-staff"
+    },
+    {
+      "action": "fresh",
+      "label": "Open a fresh browser session"
+    },
+    {
+      "action": "navigate",
+      "label": "Open the staff sign-in page",
+      "path": "/"
+    },
+    {
+      "action": "fill",
+      "label": "Enter the test account",
+      "selector": "#test-account",
+      "secret": "TEST_ACCOUNT"
+    },
+    {
+      "action": "fill",
+      "label": "Enter the test credential",
+      "selector": "#test-password",
+      "secret": "TEST_PASSWORD"
+    },
+    {
+      "action": "click",
+      "label": "Sign into staging",
+      "selector": "#test-sign-in",
+      "credential": true
+    },
+    {
+      "action": "assert",
+      "label": "Confirm test account access",
+      "selector": "#signed-in",
+      "value": "Staff workspace",
+      "credential": true
+    },
+    {
+      "action": "assert",
+      "label": "Staff record missing after reload",
+      "selector": "#staff-list",
+      "value": "MyDev Test Barber · Pilot branch"
+    }
+  ],
+  "cleanup": [
+    {
+      "action": "click",
+      "label": "Remove the test record",
+      "selector": "#remove-staff"
+    },
+    {
+      "action": "assert",
+      "label": "Confirm the record is cleared",
+      "selector": "#staff-list",
+      "value": "No test record"
+    }
+  ]
+}

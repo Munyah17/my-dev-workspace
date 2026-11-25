@@ -1,2 +1,4 @@
-:root{font-family:Inter,ui-sans-serif,system-ui,sans-serif;color:#1c2941;background:#f5f7fb;font-synthesis:none;line-height:1.5;--ink:#1c2941;--muted:#5b6880;--border:#dce4ef;--accent:#274ec7}
+:root{font-family:"Inter Variable",Inter,ui-sans-serif,system-ui,sans-serif;color:#101B35;background:#f5f7fb;font-synthesis:none;line-height:1.5;--ink:#101B35;--muted:#5b6880;--border:#dce4ef;--accent:#1555ED;--selection:#EEF4FF;--surface:#FFFFFF}
 *{box-sizing:border-box}body{margin:0;min-width:320px}a{color:var(--accent);text-underline-offset:3px}button,input,textarea,select{font:inherit}button,select{cursor:pointer}button:disabled{opacity:.55;cursor:wait}button{background:white;border:1px solid var(--border);border-radius:8px;padding:.55rem .8rem;color:inherit}p,h1,h2{margin:0}small{color:var(--muted);font-size:.82rem}:focus-visible{outline:3px solid #6388ff;outline-offset:3px}
+
+h1,h2,h3{font-weight:600}.metric strong,time,.row small,.message small,.monitor-fields dd{font-variant-numeric:tabular-nums}

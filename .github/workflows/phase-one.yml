@@ -1,4 +1,4 @@
-name: Phase 1 smoke checks
+name: Workspace smoke checks
 
 on:
   pull_request:
@@ -21,6 +21,9 @@ jobs:
       - run: npm test
       - run: npx playwright install --with-deps chromium
       - run: npm run smoke:web
+      - run: node --test fixtures/gents/browser.test.js
+        env:
+          MONITOR_BROWSER_TEST: 1
   desktop:
     strategy:
       matrix:
