@@ -1,6 +1,6 @@
 import { operationsRoute } from './operations.js'
 import { billingRoute } from './billing.js'
-import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
+import { createHash, randomBytes, scryptSync } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { openDatabase, scopedTransaction } from './database.js'
 import { migrateBilling, migrateMaintenance, migrateMonitoring, migrateOperations } from './migrate.js'
@@ -45,7 +45,7 @@ export async function initialize(db, demo) {
       INSERT INTO projects VALUES ('gents-staff','demo','gents','The Gents Staff Portal'),('harbor-site','demo','harbor','Harbor Studio Website'),('agency-site','demo',NULL,'Agency Website');
     `)
     for (const [id, email, name, organization, role] of demoAccounts) {
-      await tx.query('INSERT INTO accounts (id,email,name,password) VALUES ($1,$2,$3,$4)', [id,email,name,encodePassword('workspace-demo')])
+      await tx.query('INSERT INTO accounts (id,email,name,password) VALUES ($1,$2,$3,$4)', [id,email,name,encodePassword(randomBytes(32).toString('base64url'))])
       await tx.query("INSERT INTO memberships VALUES ($1,'demo',$2,$3)", [id,organization,role])
     }
     await tx.exec("INSERT INTO project_access VALUES ('gents','gents-staff'),('other','harbor-site')")
@@ -93,10 +93,11 @@ async function supabaseIdentity(email, password, config) {
   if (response.status >= 500) throw fail(502, 'Sign-in service is unavailable.')
   if (!response.ok) return null
   const result = await response.json()
-  return result.user?.id ?? null
+  return result.user?.email_confirmed_at ? result.user.id : null
 }
 
 export async function createApi({ dataDir, demo = false, supabase } = {}) {
+  if (demo && (process.env.VERCEL || ['preview', 'production'].includes(process.env.VERCEL_ENV))) throw new Error('Demo authentication is disabled on hosted deployments.')
   if (demo && supabase) throw new Error('Demo mode requires an isolated local database.')
   if (!demo && !supabase) throw new Error('Configure Supabase or run npm run demo.')
   const db = await openDatabase({ dataDir, url: supabase?.databaseUrl })
@@ -127,21 +128,26 @@ export async function createApi({ dataDir, demo = false, supabase } = {}) {
       const secure = Boolean(supabase) || req.socket.encrypted || process.env.WORKSPACE_SECURE_COOKIES === '1'
       const setSession = (value, age) => res.setHeader('Set-Cookie', `workspace_session=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${age}${secure ? '; Secure' : ''}`)
       try {
-        if (method !== 'GET' && req.headers['sec-fetch-site'] === 'cross-site') throw fail(403, 'Cross-site request denied.')
+        if (method === 'POST') {
+          if (['cross-site', 'same-site'].includes(req.headers['sec-fetch-site'])) throw fail(403, 'Cross-origin request denied.')
+          if (req.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json')
+            throw fail(415, 'Expected application/json.')
+        }
         if (method === 'GET' && url === '/api/config') return send(200, { demo })
-        if (method === 'POST' && url === '/api/login') {
+        if (method === 'POST' && url === '/api/demo-login' && !demo) throw fail(404, 'Page not found.')
+        if (method === 'POST' && (url === '/api/login' || url === '/api/demo-login')) {
           const form = await jsonBody(req)
-          const email = requiredText(form.email, 254).toLowerCase()
-          const password = requiredText(form.password, 256)
           let account
-          if (supabase) {
+          if (url === '/api/demo-login') {
+            const principal = demoAccounts.find(([id]) => form.account === id)
+            if (principal) ({ rows: [account] } = await query('SELECT id FROM accounts WHERE id=$1 AND auth_user_id IS NULL', [principal[0]]))
+          } else if (supabase) {
+            const email = requiredText(form.email, 254).toLowerCase()
+            const password = form.password
+            if (typeof password !== 'string' || !password || password.length > 256) throw fail(401, 'Email or password is incorrect.')
             const identity = await supabaseIdentity(email, password, supabase)
-            if (identity) ({ rows: [account] } = await query('SELECT id FROM accounts WHERE auth_user_id=$1', [identity]))
-          } else {
-            const { rows: [demoAccount] } = await query('SELECT id,password FROM accounts WHERE email=$1', [email])
-            const [salt, hash] = demoAccount?.password.split(':') ?? ['invalid-account', '0'.repeat(128)]
-            const matches = timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(passwordHash(password, salt), 'hex'))
-            if (matches) account = demoAccount
+            if (identity) ({ rows: [account] } = await query(`SELECT a.id FROM accounts a WHERE a.auth_user_id=$1
+              AND EXISTS(SELECT 1 FROM memberships m WHERE m.account_id=a.id)`, [identity]))
           }
           if (!account) throw fail(401, 'Email or password is incorrect.')
           const session = randomBytes(32).toString('hex')
@@ -154,7 +160,7 @@ export async function createApi({ dataDir, demo = false, supabase } = {}) {
         }
         const { rows: [account] } = token ? await query(
           `SELECT a.id,a.name,a.email,coalesce(bool_or(m.role IN ('owner','support')),false) agency, coalesce(bool_or(m.role IN ('owner','finance')),false) billing
-           FROM sessions s JOIN accounts a ON a.id=s.account_id LEFT JOIN memberships m ON m.account_id=a.id
+           FROM sessions s JOIN accounts a ON a.id=s.account_id JOIN memberships m ON m.account_id=a.id
            WHERE s.token_hash=$1 AND s.expires_at>now() GROUP BY a.id`, [digest(token)],
         ) : { rows: [] }
         if (!account) throw fail(401, 'Sign in to continue.')

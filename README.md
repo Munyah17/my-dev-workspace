@@ -64,7 +64,7 @@ The Vite build, lint, persistent API and policy tests, and desktop smoke asset b
 
 Import the repository root as one Vercel project. The `app` service builds the Vite UI. The `api` service runs the existing API through an Express entry point. Vercel sends browser requests under `/api/` to the API on the same origin, including attachment downloads. The frontend is static and the API calls external Supabase services, so this deployment has no server-to-server binding. Desktop packaging runs through the Tauri CI workflow.
 
-Provision Supabase as described above. Set `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and `SUPABASE_DATABASE_URL` for the appropriate Vercel environments. Keep administrative database credentials outside Vercel. For local routing tests, link the project with the current Vercel CLI and run `vercel dev`. Open the CLI-reported URL and check `/api/config` and the sign-in page on the same origin. Local development can also use `WORKSPACE_DEMO=1 vercel dev` with an isolated local database.
+Provision Supabase as described above. Set `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and `SUPABASE_DATABASE_URL` for the appropriate Vercel environments. Keep administrative database credentials outside Vercel. For local routing tests, link the project with the current Vercel CLI and run `vercel dev`. Open the CLI-reported URL and check `/api/config` and the sign-in page on the same origin. Use `npm run demo` for isolated local demo sign-in. The Vercel runtime disables demo authentication.
 
 ## Phase 2 monitoring
 

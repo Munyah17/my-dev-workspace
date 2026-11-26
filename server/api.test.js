@@ -9,11 +9,11 @@ import { createApi } from './api.js'
 async function launch(dataDir) {
   const api = await createApi({ dataDir, demo: true })
   return {
-    async fetch(path, cookie, body) {
+    async fetch(path, cookie, body, extraHeaders = {}) {
       const req = Object.assign(Readable.from(body === undefined ? [] : [Buffer.from(JSON.stringify(body))]), {
         url: '/api/' + path,
         method: body === undefined ? 'GET' : 'POST',
-        headers: { cookie },
+        headers: { cookie, 'content-type': 'application/json', ...extraHeaders },
         socket: {},
       })
       const headers = new Headers()
@@ -30,7 +30,7 @@ async function launch(dataDir) {
       return response
     },
     async login(email) {
-      const result = await this.fetch('login', '', { email: email + '@example.test', password: 'workspace-demo' })
+      const result = await this.fetch('demo-login', '', { account:email })
       assert.equal(result.status, 200)
       assert.match(result.headers.get('set-cookie'), /HttpOnly; SameSite=Strict/)
       return result.headers.get('set-cookie').split(';')[0]
@@ -47,6 +47,13 @@ test('ticket, replies and files persist across restart and stay within authorize
   let server
   try {
     server = await launch(dataDir)
+    assert.equal((await server.fetch('demo-login','',{account:'agency'},{'sec-fetch-site':'same-site'})).status,403)
+    assert.equal((await server.fetch('demo-login','',{account:'agency'},{'content-type':'text/plain'})).status,415)
+    assert.equal((await server.fetch('demo-login','',{account:'unknown'})).status,401)
+    assert.equal((await server.fetch('login','',{email:'agency@example.test',password:'workspace-demo'})).status,401)
+    for (const path of ['tickets','notifications','billing/summary','operations/overview','maintenance/catalog','monitoring']) {
+      assert.equal((await server.fetch(path,'')).status,401,path)
+    }
     const client = await server.login('gents')
     const agency = await server.login('agency')
     const other = await server.login('other')
@@ -68,6 +75,9 @@ test('ticket, replies and files persist across restart and stay within authorize
     const attachment = 'attachments/' + agencyTicket.messages[0].attachments[0].id
     assert.equal(await (await server.fetch(attachment, agency)).text(), 'Fixture evidence')
     assert.equal((await server.fetch(path, other)).status, 404)
+    assert.equal((await server.fetch(path, other, undefined, {
+      'x-user-email':'agency@example.test','x-user-role':'owner',authorization:'Bearer agency@example.test',
+    })).status,404)
     assert.equal((await server.fetch(attachment, other)).status, 404)
     assert.deepEqual(await (await server.fetch('tickets?q=Staff', other)).json(), [])
     assert.deepEqual(await (await server.fetch('notifications', other)).json(), [])

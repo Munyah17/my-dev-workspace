@@ -137,6 +137,11 @@ export default function App() {
     setUser(await api('me'))
   }
 
+  async function signInDemo(account) {
+    await api('demo-login', { account })
+    setUser(await api('me'))
+  }
+
   async function send(event, creating) {
     event.preventDefault()
     const form = event.currentTarget
@@ -170,7 +175,7 @@ export default function App() {
       </form>
       {demo && <div className="demo"><strong>Demo accounts</strong><div className="demo-buttons">
         {[['Agency', 'agency'], ['The Gents', 'gents'], ['Harbor Studio', 'other']].map(([label, account]) =>
-          <button key={account} disabled={busy} onClick={() => action(() => signIn(account + '@example.test', 'workspace-demo'))}>{label}</button>
+          <button key={account} disabled={busy} onClick={() => action(() => signInDemo(account))}>{label}</button>
         )}
       </div></div>}
     </div>
