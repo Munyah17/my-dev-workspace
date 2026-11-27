@@ -129,6 +129,16 @@ test('workspace tools preserve document totals, payroll scope, provider boundari
     const report=await tools(reportPath)
     assert.deepEqual(report.stripe,{usd:{gross:3500,refund:500}})
     assert.equal(Number(report.paynow[0].gross),2100)
+    assert.deepEqual(report.byApp,[{app:'AeroTrack',currency:'usd',gross:5600,refund:600}])
+    await tools('collections/paynow',{...paynow,reference:'fixture-untagged',currency:'ZWG',app:''})
+    const all=await tools(reportPath.replace('&app=AeroTrack',''))
+    assert.deepEqual(all.byApp,[
+      {app:'',currency:'zwg',gross:2100,refund:100},
+      {app:'AeroTrack',currency:'usd',gross:5600,refund:600},
+      {app:'Other',currency:'usd',gross:3500,refund:500},
+    ])
+    const paynowOnly=await tools(reportPath+'&provider=paynow')
+    assert.deepEqual(paynowOnly.byApp,[{app:'AeroTrack',currency:'usd',gross:2100,refund:100}])
     await tools('connections',{workspace,provider:'Sentry',scope:'fixture/project',apiKey:'fixture-sentry-token'})
     globalThis.fetch=async url=>{
       assert.equal(new URL(url).pathname,'/api/0/projects/fixture/project/issues/')

@@ -138,10 +138,22 @@ export async function workspaceToolsRoute(tx,{method,pathname,body,account,searc
           const filter=search.get('provider')??'all'
           if(!['all','stripe','paynow'].includes(filter)) throw fail(400,'Choose a collections provider.')
           const stripe=filter==='paynow'?null:await verified('Stripe')
-          const stripeTotals=stripe?await stripeCollections(stripe,Date.parse(start)/1000,Date.parse(end)/1000+86400,app):null
-          const paynow=filter==='stripe'?[]:await query(`SELECT lower(currency) AS currency,sum(gross) AS gross,sum(refund) AS refund
-            FROM paynow_collections WHERE workspace_id=$1 AND received_on BETWEEN $2 AND $3 AND ($4='' OR app=$4) GROUP BY currency`,[workspace,start,end,app])
-          return {stripe:stripeTotals,paynow}
+          const stripeReport=stripe?await stripeCollections(stripe,Date.parse(start)/1000,Date.parse(end)/1000+86400,app):null
+          const paynowGroups=filter==='stripe'?[]:await query(`SELECT app,lower(currency) AS currency,sum(gross) AS gross,sum(refund) AS refund
+            FROM paynow_collections WHERE workspace_id=$1 AND received_on BETWEEN $2 AND $3 AND ($4='' OR app=$4) GROUP BY app,currency`,[workspace,start,end,app])
+          const paynow=new Map()
+          const byApp=new Map()
+          const add=(totals,key,group,properties)=>{
+            const gross=Number(group.gross)+(totals.get(key)?.gross??0)
+            const refund=Number(group.refund)+(totals.get(key)?.refund??0)
+            if(!Number.isSafeInteger(gross) || !Number.isSafeInteger(refund)) throw fail(422,'Collection totals exceed supported precision.')
+            totals.set(key,{...properties,gross,refund})
+          }
+          for(const group of paynowGroups) add(paynow,group.currency,group,{currency:group.currency})
+          for(const {app,currency,gross,refund} of [...(stripeReport?.byApp??[]),...paynowGroups])
+            add(byApp,JSON.stringify([app,currency]),{gross,refund},{app,currency})
+          return {stripe:stripeReport?.totals??null,paynow:[...paynow.values()],byApp:[...byApp.values()]
+            .sort((a,b)=>a.app.localeCompare(b.app)||a.currency.localeCompare(b.currency))}
         }
       }
       throw fail(404,'Integration operation not found.')

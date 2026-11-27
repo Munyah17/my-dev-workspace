@@ -23,6 +23,9 @@ const sectionLinks={crm:'CRM',billing:'Quotes and invoices',orders:'Orders',inve
 
 function AgencyIntegrations({api,workspace,action,busy,providers}){
   const [report,setReport]=useState(null)
+  const [appTag,setAppTag]=useState('')
+  const [filters,setFilters]=useState(null)
+  const [knownTags,setKnownTags]=useState([])
   const [hosting,setHosting]=useState(null)
   const [issues,setIssues]=useState(null)
   const scope=new URLSearchParams({workspace}).toString()
@@ -37,27 +40,42 @@ function AgencyIntegrations({api,workspace,action,busy,providers}){
     const digits=['isk','ugx'].includes(code)?2:format.resolvedOptions().maximumFractionDigits
     return format.format(value/10**digits)
   }
+  const loadCollections=values=>{
+    setReport(null)
+    setFilters(null)
+    action(async()=>{
+      const result=await api('developer-tools/collections?'+new URLSearchParams({workspace,...values}))
+      setReport(result)
+      setFilters(values)
+      if(!values.app.trim()) setKnownTags([...new Set((result.byApp??[]).map(row=>row.app).filter(Boolean))])
+    })
+  }
   return <section className="monitor-details">
     <h3>Collections reporting</h3>
     <p>Shows captured payments less recorded refunds, grouped by currency. Refunds follow the original payment date. Fees and payouts are tracked separately by your provider.</p>
-    <form className="fields" onSubmit={event=>{
-      const values=form(event)
-      setReport(null)
-      action(async()=>setReport(await api('developer-tools/collections?'+new URLSearchParams({workspace,...values}))))
-    }}>
+    <form className="fields" onSubmit={event=>loadCollections(form(event))}>
       <label>From<input type="date" name="start" required defaultValue={today().slice(0,7)+'-01'} /></label>
       <label>Through<input type="date" name="end" required defaultValue={today()} /></label>
       <label>Payment provider<select name="provider"><option value="all">All providers</option><option value="stripe">Stripe</option><option value="paynow">Paynow</option></select></label>
-      <label>App or business tag<input name="app" maxLength="120" /></label>
-      <small>App tags match Stripe charge metadata named app or the tag entered with a Paynow record.</small>
+      <label>App or business tag<input name="app" maxLength="120" list="collection-tags" value={appTag} onChange={event=>setAppTag(event.target.value)} /></label>
+      <datalist id="collection-tags">{knownTags.map(tag=><option key={tag} value={tag} />)}</datalist>
+      <small>Run the report with the tag blank to discover tags from Stripe charges and Paynow records.</small>
       <button disabled={busy}>View collections</button>
     </form>
     {report && <div>
       {report.stripe===null && <p>Stripe data is excluded. Check the provider filter and connection status.</p>}
+      {filters?.app.trim() && <button disabled={busy} onClick={()=>{setAppTag('');loadCollections({...filters,app:''})}}>Show all apps and businesses</button>}
       {!rows.size && <p>No matching collections.</p>}
       {[...rows].map(([code,row])=><p key={code}>
         {amount(row.gross,code)} captured · {amount(row.refund,code)} refunded · {amount(row.gross-row.refund,code)} after refunds
       </p>)}
+      {report.byApp?.length>0 && !filters?.app.trim() && <details className="monitor-details">
+        <summary>Breakdown by app or business</summary>
+        {report.byApp.map(row=><div className="row" key={JSON.stringify([row.app,row.currency])}>
+          <div><strong>{row.app||'Untagged'}</strong><small>{amount(row.gross-row.refund,row.currency)} after refunds</small></div>
+          {row.app && <button disabled={busy} onClick={()=>{setAppTag(row.app);loadCollections({...filters,app:row.app})}}>Filter by {row.app}</button>}
+        </div>)}
+      </details>}
     </div>}
     <details className="monitor-details"><summary>Record a settled Paynow collection</summary>
       <form className="fields" onSubmit={event=>{

@@ -170,13 +170,17 @@ export async function sentryIssues(connection){
 
 export async function stripeCollections(connection,start,end,app){
   const totals=new Map()
+  const byApp=new Map()
   const deadline=AbortSignal.timeout(20000)
   const params=new URLSearchParams({'created[gte]':start,'created[lt]':end,limit:100})
   for(let page=0;page<25;page++){
     const result=await call(connection,'/v1/charges?'+params,undefined,deadline)
     if(!Array.isArray(result.data) || (result.has_more && !result.data.length)) throw fail(502,'Stripe did not return a complete page of charges.')
     for(const charge of result.data){
-      if(charge.status!=='succeeded' || !charge.paid || !charge.captured || (app && charge.metadata?.app!==app)) continue
+      if(charge.status!=='succeeded' || !charge.paid || !charge.captured) continue
+      const metadata=charge.metadata?.app
+      const tag=typeof metadata==='string' && metadata.length<=120 ? metadata.trim() : ''
+      if(app && tag!==app) continue
       const {amount_captured:gross,amount_refunded:refund,currency}=charge
       if(!/^[a-z]{3}$/.test(currency) || !Number.isSafeInteger(gross) || !Number.isSafeInteger(refund) || refund<0 || gross<refund)
         throw fail(502,'Stripe returned an invalid amount.')
@@ -185,8 +189,13 @@ export async function stripeCollections(connection,start,end,app){
       bucket.refund+=refund
       if(!Number.isSafeInteger(bucket.gross) || !Number.isSafeInteger(bucket.refund)) throw fail(502,'Stripe totals exceed supported precision.')
       totals.set(currency,bucket)
+      const key=JSON.stringify([tag,currency])
+      const group=byApp.get(key)??{app:tag,currency,gross:0,refund:0}
+      group.gross+=gross
+      group.refund+=refund
+      byApp.set(key,group)
     }
-    if(!result.has_more) return Object.fromEntries(totals)
+    if(!result.has_more) return {totals:Object.fromEntries(totals),byApp:[...byApp.values()]}
     params.set('starting_after',result.data.at(-1).id)
   }
   throw fail(422,'Narrow the date range to report on fewer Stripe charges.')
