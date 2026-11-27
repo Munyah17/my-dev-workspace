@@ -13,6 +13,7 @@ const definitions={
   Supabase:{ endpoint:'https://api.supabase.com', environment:'SUPABASE' },
   Cloudflare:{ endpoint:'https://api.cloudflare.com', environment:'CLOUDFLARE' },
   Firebase:{ endpoint:'https://firebase.googleapis.com', environment:'FIREBASE' },
+  'GitHub Actions':{ endpoint:'https://api.github.com', environment:'GITHUB_ACTIONS' },
   Stripe:{ endpoint:'https://api.stripe.com', environment:'STRIPE' },
   Sentry:{ endpoint:'https://sentry.io', environment:'SENTRY' },
   WHM:{ environment:'WHM',port:'2087' },
@@ -24,6 +25,7 @@ export const promptProviders=['Claude','Codex','ChatGPT']
 
 export function validateProviderScope(provider,scope){
   if (!Object.hasOwn(definitions,provider)) return false
+  if (provider==='GitHub Actions') return /^[a-z0-9_-]+\/[a-z0-9_.-]+\/[a-z0-9_-][a-z0-9_.-]*$/i.test(scope) && !scope.split('/').some(part=>part==='.' || part==='..')
   if (provider==='Stripe') return /^acct_[a-zA-Z0-9]+$/.test(scope)
   if (provider==='Sentry') return /^[a-z0-9_-]+\/[a-z0-9_-]+$/i.test(scope)
   if (definitions[provider].port) return /^(?:[a-z][a-z0-9-]{0,62}\.)+[a-z]{2,63}\/[a-z0-9_-]{1,64}$/i.test(scope)
@@ -59,12 +61,18 @@ async function call(connection,path,body,deadline){
     headers['anthropic-version']='2023-06-01'
   }else if(connection.provider==='Cursor') headers.Authorization='Basic '+Buffer.from(key+':').toString('base64')
   else headers.Authorization='Bearer '+key
+  if(connection.provider==='GitHub Actions'){
+    headers.Accept='application/vnd.github+json'
+    headers['User-Agent']='MyDev-Workspace'
+    headers['X-GitHub-Api-Version']='2022-11-28'
+  }
   let response
   try {
     response=await fetch(definition.endpoint+path,{method:body?'POST':'GET',headers,body:body?JSON.stringify(body):undefined,
       redirect:'error',signal:deadline ? AbortSignal.any([deadline,AbortSignal.timeout(10000)]) : AbortSignal.timeout(body?25000:10000)})
   }catch{throw fail(502,'The provider could not be reached.')}
-  if(!response.ok) throw fail(502,'The provider returned HTTP '+response.status+'. Check credential permissions and scope.')
+  if(!response.ok) throw Object.assign(fail(502,'The provider returned HTTP '+response.status+'. Check credential permissions and scope.'),{providerStatus:response.status})
+  if(response.status===204) return null
   try{return await response.json()}catch{throw fail(502,'The provider returned an unreadable response.')}
 }
 
@@ -74,6 +82,12 @@ export async function checkDeveloperConnection(connection){
   if(provider==='WHM' || provider==='cPanel'){
     const accounts=await hostingResources(connection)
     return {name:connection.external_scope,status:accounts.length+' visible '+(provider==='WHM'?'accounts':'domains')}
+  }
+  if(provider==='GitHub Actions'){
+    const {path}=stackWorkflow(connection)
+    const workflow=await call(connection,path)
+    if(workflow?.state!=='active') throw fail(409,'The mydev-release.yml workflow must be active.')
+    return {name:connection.external_scope,status:'Release workflow found'}
   }
   if(provider==='Sentry'){
     await sentryIssues(connection)
@@ -199,4 +213,19 @@ export async function stripeCollections(connection,start,end,app){
     params.set('starting_after',result.data.at(-1).id)
   }
   throw fail(422,'Narrow the date range to report on fewer Stripe charges.')
+}
+
+function stackWorkflow(connection){
+  const [owner,repo,ref]=connection.external_scope.split('/').map(encodeURIComponent)
+  return {path:'/repos/'+owner+'/'+repo+'/actions/workflows/mydev-release.yml',ref}
+}
+
+export async function dispatchStack(connection,revision,requestId){
+  const {path,ref}=stackWorkflow(connection)
+  try{
+    await call(connection,path+'/dispatches',{ref,inputs:{revision,request_id:requestId}})
+    return 'accepted'
+  }catch(error){
+    return error.providerStatus>=400 && error.providerStatus<500 && error.providerStatus!==429 ? 'rejected' : 'uncertain'
+  }
 }

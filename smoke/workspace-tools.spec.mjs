@@ -5,7 +5,7 @@ test('agency can find all AI providers and generate a printable proposal',async(
   await page.getByRole('button',{name:'Agency'}).click()
   await page.getByRole('link',{name:'Workspace settings',exact:true}).click()
   await expect(page.getByRole('heading',{name:'AI agents and models'})).toBeVisible()
-  for(const provider of ['Devin','Cursor','Claude','Codex','ChatGPT','Vercel','Supabase','Cloudflare','Firebase','Netlify','WHM','cPanel','Stripe','Sentry']) await expect(page.locator('#configure-provider strong').getByText(provider,{exact:true})).toBeVisible()
+  for(const provider of ['Devin','Cursor','Claude','Codex','ChatGPT','Vercel','Supabase','Cloudflare','Firebase','Netlify','WHM','cPanel','Stripe','Sentry','GitHub Actions']) await expect(page.locator('#configure-provider strong').getByText(provider,{exact:true})).toBeVisible()
   await page.getByRole('button',{name:'Add integration',exact:true}).click()
   await expect(page.getByLabel('API key',{exact:true})).toHaveAttribute('type','password')
   await page.getByRole('combobox',{name:'Provider',exact:true}).selectOption('Codex')

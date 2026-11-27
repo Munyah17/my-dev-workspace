@@ -5,5 +5,7 @@ umask 077
 printf '%s\n' "$VPS_SSH_PUBLIC_KEY" > /root/.ssh/authorized_keys
 unset VPS_SSH_PUBLIC_KEY
 ssh-keygen -A
+nginx -t
+nginx
 exec timeout --foreground "$VPS_LIFETIME_SECONDS" /usr/sbin/sshd -D -e \
   -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o PermitRootLogin=prohibit-password

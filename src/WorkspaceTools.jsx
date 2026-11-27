@@ -3,12 +3,13 @@ import { useRecord } from './useRecord.js'
 
 const aiProviders=['Devin','Cursor','Claude','Codex','ChatGPT']
 const infrastructure=['Vercel','Supabase','Cloudflare','Firebase','Netlify','WHM','cPanel']
-const operationsProviders=['Stripe','Sentry']
+const operationsProviders=['Stripe','Sentry','GitHub Actions']
 const promptProviders=['Claude','Codex','ChatGPT']
 const scopeLabels={
   Devin:'Devin organization ID',Claude:'Claude model ID',Codex:'OpenAI Codex model ID',ChatGPT:'OpenAI GPT model ID',
   Vercel:'Vercel project ID or project ID/team ID',Supabase:'Supabase project reference',Cloudflare:'Cloudflare zone ID',
   Firebase:'Firebase project ID',Netlify:'Netlify site ID',
+  'GitHub Actions':'Repository and workflow ref (owner/repo/ref)',
   WHM:'WHM hostname/username',cPanel:'cPanel hostname/username',Stripe:'Stripe account ID',Sentry:'Sentry organization/project slug',
 }
 const providers=[...aiProviders,...infrastructure,...operationsProviders]
@@ -118,6 +119,31 @@ function AgencyIntegrations({api,workspace,action,busy,providers}){
   </section>
 }
 
+function StackDeploy({api,revision,action,busy,connection}){
+  const workspace=connection.workspace_id
+  const history=useRecord(api,'developer-tools/stack-deploy?'+new URLSearchParams({workspace}),revision)
+  return <section className="monitor-details">
+    <h3>Deploy your stack</h3>
+    <p>Run the configured GitHub release workflow for <strong>{connection.external_scope}</strong>. The workflow chooses the destinations and uses its own deployment secrets.</p>
+    <form className="fields" onSubmit={event=>{
+      const values=form(event)
+      action(()=>api('developer-tools/stack-deploy',{workspace,scope:connection.external_scope,requestId:crypto.randomUUID(),revision:values.revision.toLowerCase()}))
+    }}>
+      <label>Git commit SHA<input name="revision" pattern="[0-9a-fA-F]{40}" required maxLength="40" /></label>
+      <button className="primary" disabled={busy}>Run release workflow</button>
+    </form>
+    {history.error && <p className="error" role="alert">{history.error}</p>}
+    {history.value?.map(item=><div className="row" key={item.request_id}>
+      <div><strong>{item.scope} · {item.revision.slice(0,12)}</strong><small>{{
+        accepted:'GitHub accepted dispatch. Check workflow results.',
+        rejected:'GitHub rejected dispatch.',
+        uncertain:'Delivery uncertain. Check GitHub before retrying.',
+      }[item.state]}</small></div>
+      <a href={'https://github.com/'+item.scope.split('/').slice(0,2).join('/')+'/actions/workflows/mydev-release.yml'} target="_blank" rel="noreferrer">Workflow runs</a>
+    </div>)}
+  </section>
+}
+
 export function DeveloperTools({api,revision,action,busy}){
   const catalog=useRecord(api,'developer-tools/connections',revision)
   const work=useRecord(api,'developer-tools/links',revision)
@@ -130,6 +156,7 @@ export function DeveloperTools({api,revision,action,busy}){
   const scopes=catalog.value?.workspaces ?? []
   const selected=workspace || scopes[0]?.id
   const canEdit=scopes.some(scope=>scope.id===selected && scope.editable)
+  const releaseConnection=catalog.value?.connections.find(item=>item.workspace_id===selected && item.provider==='GitHub Actions' && item.checked_at)
   const save=(path,payload)=>action(()=>api('developer-tools/'+path,payload))
   return <section id="configure-provider" className="panel">
     <div className="thread-heading"><h2>AI agents and models</h2>
@@ -154,13 +181,14 @@ export function DeveloperTools({api,revision,action,busy}){
         <label>Provider<select value={provider} onChange={event=>setProvider(event.target.value)}>{providers.map(name=><option key={name}>{name}</option>)}</select></label>
         {useReference
           ? <label>Server credential reference<input name="secretRef" pattern="[A-Z][A-Z0-9_]{0,40}" defaultValue="PRIMARY" required /></label>
-          : <label>{['Firebase','Supabase','Netlify','Vercel','Cloudflare','WHM','cPanel','Sentry'].includes(provider)?'API access token':'API key'}<input
+          : <label>{['Firebase','Supabase','Netlify','Vercel','Cloudflare','WHM','cPanel','Sentry','GitHub Actions'].includes(provider)?'API access token':'API key'}<input
             type="password" name="apiKey" autoComplete="off" required maxLength="2048" /></label>}
         <label className="checkbox"><input type="checkbox" checked={useReference} onChange={event=>setUseReference(event.target.checked)} />Use a server environment variable instead</label>
         {!useReference && provider==='Firebase' && <small>Use a Google OAuth access token with access to this project.</small>}
         {!useReference && provider==='Supabase' && <small>Use a personal access token from your Supabase account settings.</small>}
         {!useReference && ['Codex','ChatGPT'].includes(provider) && <small>Use an OpenAI API key and a model ID available to that API project.</small>}
         {!useReference && provider==='Stripe' && <small>Use a live restricted key with account and charges read access.</small>}
+        {!useReference && provider==='GitHub Actions' && <small>Use a fine-grained GitHub token with Actions write access for the selected repository.</small>}
         {!useReference && provider==='Sentry' && <small>Use a Sentry token with project and event read access.</small>}
         {!useReference && ['WHM','cPanel'].includes(provider) && <small>Use the hosting account’s API token and enter the server hostname followed by /username.</small>}
         {provider!=='Cursor' && <label>{scopeLabels[provider]}<input key={provider} name="scope" required /></label>}
@@ -185,6 +213,7 @@ export function DeveloperTools({api,revision,action,busy}){
       </article>
       })}
     </section>)}
+    {canEdit && releaseConnection && <StackDeploy api={api} revision={revision} action={action} busy={busy} connection={releaseConnection} />}
     {canEdit && <AgencyIntegrations api={api} workspace={selected} action={action} busy={busy}
       providers={catalog.value?.connections.filter(item=>item.workspace_id===selected && item.checked_at).map(item=>item.provider)??[]} key={selected} />}
     {(work.value?.tasks.length??0)>0 && <>

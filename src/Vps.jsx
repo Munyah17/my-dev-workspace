@@ -24,6 +24,7 @@ export function Vps({api,revision,busy,action,platform}){
   return <>
     <section className="panel">
       <h2>Prepaid VPS wallet</h2>
+      <p>The Linux guest includes NGINX for serving static files from <code>/srv/www</code>.</p>
       {error && <p className="error" role="alert">{error}</p>}
       {value && <>
         {value.workspaces.length>1 && <label>Workspace<select value={value.workspace} onChange={event=>setWorkspace(event.target.value)}>

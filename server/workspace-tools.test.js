@@ -149,6 +149,33 @@ test('workspace tools preserve document totals, payroll scope, provider boundari
     const sentryTask=await tools('sentry/12345',{workspace})
     assert.deepEqual(await tools('sentry/12345',{workspace}),sentryTask)
     assert.equal((await call('maintenance','tasks/'+sentryTask.id)).title,'Sentry PROJECT-1 · Persistence error')
+    const scope='fixture/site/main'
+    await tools('connections',{workspace,provider:'GitHub Actions',scope,apiKey:'fixture-actions-token'})
+    let sends=0
+    const stackPath='/repos/fixture/site/actions/workflows/mydev-release.yml'
+    const intent={workspace,scope,revision:'a'.repeat(40),requestId:'550e8400-e29b-41d4-a716-446655440000'}
+    globalThis.fetch=async(url,options)=>{
+      assert.equal(options.headers.Authorization,'Bearer fixture-actions-token')
+      const path=new URL(url).pathname
+      if(path===stackPath) return Response.json({state:'active'})
+      assert.equal(path,stackPath+'/dispatches')
+      assert.deepEqual(JSON.parse(options.body),{ref:'main',inputs:{revision:intent.revision,request_id:intent.requestId}})
+      sends++
+      return new Response(null,{status:204})
+    }
+    await tools('connections/GitHub Actions/check',{workspace})
+    await assert.rejects(tools('stack-deploy',intent,'gents'),{status:404})
+    await assert.rejects(tools('stack-deploy',{...intent,scope:'fixture/other/main'}),{status:409})
+    const effect=await tools('stack-deploy',intent)
+    assert.equal((await tools('stack-deploy?workspace=demo'))[0].state,'uncertain')
+    assert.deepEqual(await tools('stack-deploy',intent),{state:'uncertain'})
+    await effect(work=>scopedTransaction(db,async tx=>{
+      await tx.exec('SET LOCAL ROLE workspace_app')
+      await tx.query("SELECT set_config('workspace.actor','agency',true)")
+      return work(tx)
+    }))
+    assert.deepEqual(await tools('stack-deploy',intent),{state:'accepted'})
+    assert.equal(sends,1)
     const link=await tools('links',{task:task.id,provider:'Cursor',title:'Review agent',url:'https://cursor.com/agents/bc-fixture'})
     assert.equal((await tools('links')).links[0].id,link.id)
     assert.deepEqual(await call('platform','access'),{allowed:false})

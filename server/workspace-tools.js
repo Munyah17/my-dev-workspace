@@ -1,5 +1,5 @@
 import { sealProviderKey } from './provider-secrets.js'
-import { checkDeveloperConnection,developerStatus,hostingResources,sentryIssues,stripeCollections,providerSecretName,promptProviders,runDeveloperModel,validateProviderScope } from './developer-providers.js'
+import { checkDeveloperConnection,dispatchStack,developerStatus,hostingResources,sentryIssues,stripeCollections,providerSecretName,promptProviders,runDeveloperModel,validateProviderScope } from './developer-providers.js'
 import { currency,date,integer,text } from './billing.js'
 
 const fail=(status,message)=>Object.assign(Error(message),{status})
@@ -47,6 +47,7 @@ export async function workspaceToolsRoute(tx,{method,pathname,body,account,searc
     const connectionSql=`SELECT c.*,s.ciphertext FROM developer_connections c LEFT JOIN developer_connection_secrets s
       ON s.workspace_id=c.workspace_id AND s.provider=c.provider WHERE c.workspace_id=$1 AND c.provider=$2`
     if(resource==='connections'){
+      const provider=key==='GitHub%20Actions'?'GitHub Actions':key
       if(method==='GET' && !key){
         const workspaces=await query('SELECT w.*,developer_workspace_owner(w.id) AS editable FROM maintenance_workspaces() w')
         const connections=(await query(`SELECT c.*,EXISTS(SELECT 1 FROM developer_connection_secrets s
@@ -75,17 +76,45 @@ export async function workspaceToolsRoute(tx,{method,pathname,body,account,searc
         return {environmentKey:providerSecretName(connection),credentialStored:Boolean(body.apiKey)}
       }
       if(method==='POST' && key && operation==='check'){
-        const [connection]=await query(connectionSql+' FOR UPDATE OF c',[text(body.workspace,120),key])
+        const [connection]=await query(connectionSql+' FOR UPDATE OF c',[text(body.workspace,120),provider])
         if(!connection || !(await query('SELECT developer_workspace_owner($1) AS allowed',[connection.workspace_id]))[0].allowed) throw fail(404,'Connection not found.')
         const details=await checkDeveloperConnection(connection)
-        await query('UPDATE developer_connections SET checked_at=now(),verified_details=$3 WHERE workspace_id=$1 AND provider=$2',[connection.workspace_id,key,details])
+        await query('UPDATE developer_connections SET checked_at=now(),verified_details=$3 WHERE workspace_id=$1 AND provider=$2',[connection.workspace_id,provider,details])
         return {checked:true}
       }
       if(method==='POST' && key && operation==='disconnect'){
         const workspace=text(body.workspace,120)
         if(!(await query('SELECT developer_workspace_owner($1) AS allowed',[workspace]))[0].allowed) throw fail(404,'Connection not found.')
-        await query('DELETE FROM developer_connections WHERE workspace_id=$1 AND provider=$2',[workspace,key])
+        await query('DELETE FROM developer_connections WHERE workspace_id=$1 AND provider=$2',[workspace,provider])
         return {saved:true}
+      }
+    }
+    if(resource==='stack-deploy' && !key && !operation){
+      const workspace=text(body?.workspace??search.get('workspace'),120)
+      if(!(await query('SELECT developer_workspace_owner($1) AS allowed',[workspace]))[0].allowed)
+        throw fail(404,'Workspace not found.')
+      if(method==='GET') return query(`SELECT request_id,scope,revision,state,created_at FROM stack_dispatches
+        WHERE workspace_id=$1 ORDER BY created_at DESC LIMIT 20`,[workspace])
+      if(method==='POST'){
+        const revision=body.revision
+        if(typeof revision!=='string' || !/^[0-9a-f]{40}$/.test(revision)) throw fail(400,'Enter a full Git commit SHA.')
+        const requestId=id(body.requestId)
+        const [connection]=await query(connectionSql+" AND c.checked_at IS NOT NULL FOR SHARE OF c",[workspace,'GitHub Actions'])
+        if(!connection || connection.external_scope!==body.scope) throw fail(409,'Verify the GitHub Actions release target and try again.')
+        const [created]=await query(`INSERT INTO stack_dispatches(workspace_id,request_id,scope,revision,requested_by,state)
+          VALUES($1,$2,$3,$4,$5,'uncertain') ON CONFLICT(workspace_id,scope,revision) DO NOTHING RETURNING request_id`,
+        [workspace,requestId,connection.external_scope,revision,account.id])
+        if(!created){
+          const [existing]=await query('SELECT state FROM stack_dispatches WHERE workspace_id=$1 AND scope=$2 AND revision=$3',
+            [workspace,connection.external_scope,revision])
+          return existing
+        }
+        // The intent commits before dispatch. An interrupted or ambiguous send is never retried automatically.
+        return async scopedAction=>{
+          const state=await dispatchStack(connection,revision,requestId)
+          await scopedAction(tx=>tx.query('UPDATE stack_dispatches SET state=$3 WHERE workspace_id=$1 AND request_id=$2',[workspace,requestId,state]))
+          return {state}
+        }
       }
     }
     if(['collections','hosting','sentry'].includes(resource)){

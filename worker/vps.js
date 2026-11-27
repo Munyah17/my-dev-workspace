@@ -35,7 +35,10 @@ async function processRental(db,workspace,target,image,region){
     const machine=await fly('','POST',{name,region,config:{
       image,auto_destroy:true,restart:{policy:'no'},guest:{cpu_kind:'shared',cpus:1,memory_mb:256},
       env:{VPS_SSH_PUBLIC_KEY:job.ssh_key,VPS_LIFETIME_SECONDS:String(job.minutes*60)},
-      services:[{protocol:'tcp',internal_port:22,ports:[{port:22}]}],
+      services:[
+        {protocol:'tcp',internal_port:22,ports:[{port:22}]},
+        {protocol:'tcp',internal_port:8080,ports:[{port:443,handlers:['tls','http']}]},
+      ],
     }})
     if(!/^[a-z0-9]+$/.test(machine.id)) throw Error('Invalid Fly Machine identity')
     await scopedTransaction(db,tx=>tx.query("UPDATE vps_rentals SET state='running',provider_id=$2,host=$3 WHERE id=$1 AND state='provisioning'",[job.id,machine.id,target.host]))

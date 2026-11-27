@@ -5,7 +5,7 @@ import { billingRoute } from './billing.js'
 import { createHash, randomBytes, scryptSync } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { openDatabase, scopedTransaction } from './database.js'
-import { migrateAgencyIntegrations, migrateBilling, migrateBillingEditor, migrateIntegrationCatalog, migrateIntegrationCredentials, migrateMaintenance, migrateMonitoring, migrateOperations, migrateVps, migrateWorkspaceTools } from './migrate.js'
+import { migrateAgencyIntegrations, migrateBilling, migrateBillingEditor, migrateIntegrationCatalog, migrateIntegrationCredentials, migrateMaintenance, migrateMonitoring, migrateOperations, migrateStackDeploy, migrateVps, migrateWorkspaceTools } from './migrate.js'
 import { monitoringReady, monitoringRoute } from './monitoring.js'
 import { maintenanceRoute } from './maintenance.js'
 
@@ -44,6 +44,7 @@ export async function initialize(db, demo) {
     await migrateIntegrationCredentials(tx)
     await migrateAgencyIntegrations(tx)
     await migrateVps(tx)
+    await migrateStackDeploy(tx)
     if (!demo) return
     const seeded = await tx.query("SELECT id FROM workspaces WHERE id='demo'")
     if (seeded.rows.length) return
@@ -179,9 +180,12 @@ export async function createApi({ dataDir, demo = false, supabase } = {}) {
         }
         if (method === 'GET' && url === '/api/me') return send(200, account)
         const body = method === 'POST' && url !== '/api/logout' ? await jsonBody(req) : null
-        const result = await transaction(async tx => {
+        const accountTransaction=work=>transaction(async tx => {
           await tx.exec('SET LOCAL ROLE workspace_app')
           await tx.query("SELECT set_config('workspace.actor',$1,true)", [account.id])
+          return work(tx)
+        })
+        const result=await accountTransaction(async tx=>{
           const readCore = async path => {
             if (path === '/api/projects') return (await tx.query('SELECT id,name FROM projects ORDER BY name')).rows
             if (path === '/api/tickets') return (await tx.query(
@@ -281,7 +285,7 @@ export async function createApi({ dataDir, demo = false, supabase } = {}) {
           res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Disposition': `attachment; filename*=UTF-8''${name}` })
           return res.end(Buffer.from(result.file.content, 'base64'))
         }
-        send(200, result)
+        send(200, typeof result==='function' ? await result(accountTransaction) : result)
       } catch (error) {
         if (!error.status && error.code !== '42501') console.error(error.code ?? error.message)
         send(error.status ?? (error.code === '42501' ? 403 : 500), { error: error.status ? error.message : error.code === '42501' ? 'Access denied.' : 'The request could not be completed.' })

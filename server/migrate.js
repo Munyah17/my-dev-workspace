@@ -64,12 +64,19 @@ export async function migrateVps(tx) {
   if(!rows[0].installed) await tx.exec(await readFile(new URL('./vps.sql',import.meta.url),'utf8'))
 }
 
+export async function migrateStackDeploy(tx) {
+  await tx.query('SELECT pg_advisory_xact_lock(231042012)')
+  const {rows}=await tx.query("SELECT to_regclass('workspace_private.stack_dispatches') IS NOT NULL AS installed")
+  if(!rows[0].installed) await tx.exec(await readFile(new URL('./stack-deploy.sql',import.meta.url),'utf8'))
+}
+
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
   const url = process.env.SUPABASE_ADMIN_DATABASE_URL
   if (!url) throw new Error('Set SUPABASE_ADMIN_DATABASE_URL for migrations.')
   const db = await openDatabase({ url })
   try {
     await scopedTransaction(db, async tx => {
+      if (process.argv.includes('--stack-deploy')) return migrateStackDeploy(tx)
       if (process.argv.includes('--vps')) return migrateVps(tx)
       if (process.argv.includes('--workspace-tools')) {
         await migrateWorkspaceTools(tx)
@@ -85,7 +92,8 @@ if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) 
       await migrateMonitoring(tx)
       if (process.argv.includes('--maintenance')) await migrateMaintenance(tx)
     })
-    if (process.argv.includes('--vps')) console.log('VPS wallet schema ready.')
+    if (process.argv.includes('--stack-deploy')) console.log('Stack deployment schema ready.')
+    else if (process.argv.includes('--vps')) console.log('VPS wallet schema ready.')
     else if (process.argv.includes('--workspace-tools')) console.log('Workspace tools schema ready.')
     else if (process.argv.includes('--operations')) console.log('Orders, inventory, and expense schemas ready.')
     else if (process.argv.includes('--billing')) console.log('Billing schema ready.')
