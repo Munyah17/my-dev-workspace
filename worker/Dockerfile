@@ -3,7 +3,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends php-cli && rm -
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
-COPY server/database.js ./server/database.js
+COPY server/database.js server/supabase-tls.js ./server/
 COPY worker/ ./worker/
 USER pwuser
 CMD ["node","worker/index.js"]

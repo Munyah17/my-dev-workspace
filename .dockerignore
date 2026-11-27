@@ -3,6 +3,7 @@
 !package-lock.json
 !server
 !server/database.js
+!server/supabase-tls.js
 !worker
 !worker/*.js
 !worker/Dockerfile
