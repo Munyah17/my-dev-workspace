@@ -22,7 +22,8 @@ app.use(async (req, res, next) => {
     await service.handle(req, res, next)
   } catch (error) {
     console.error('Workspace API unavailable:', error.code ?? error.name)
-    res.status(503).set('Cache-Control', 'no-store').json({ error: 'The workspace API is unavailable.' })
+    const code = error.code === 'WORKSPACE_CONFIG_MISSING' ? 'configuration_missing' : 'backend_unavailable'
+    res.status(503).set('Cache-Control', 'no-store').json({ error: 'The workspace API is unavailable.', code })
   }
 })
 

@@ -7,7 +7,7 @@ export async function openDatabase({ dataDir, url } = {}) {
     if (dataDir) await mkdir(dataDir, { recursive: true, mode: 0o700 })
     return PGlite.create(dataDir)
   }
-  const pool = new pg.Pool({ connectionString: url, max: 5 })
+  const pool = new pg.Pool({ connectionString: url, max: 5, connectionTimeoutMillis: 8000 })
   return {
     async transaction(work) {
       const client = await pool.connect()
