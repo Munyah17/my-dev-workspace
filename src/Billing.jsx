@@ -87,28 +87,47 @@ export function CRM({ api,revision,action,busy,recordId }) {
   </section>
 }
 
+const documentLabels={
+  title:'Document title',reference:'Reference',purchaseOrder:'Purchase order number',attention:'Attention',
+  scope:'Scope of work',terms:'Terms and conditions',paymentInstructions:'Payment instructions',
+}
+
+function DocumentDetailsEditor({ document }) {
+  const details=document?.document_details ?? {}
+  return <fieldset className="monitor-fields">
+    <legend>Document details</legend>
+    {Object.entries(documentLabels).slice(0,4).map(([name,label])=>
+      <label key={name}>{label}<input name={name} defaultValue={details[name]} maxLength="160" /></label>)}
+    <label className="billing-wide">Billing address<textarea name="address" defaultValue={document?.recipient_address} maxLength="1000" rows="2" placeholder={document?'':'Uses the client’s address when blank'} /></label>
+    {Object.entries(documentLabels).slice(4).map(([name,label])=>
+      <label className="billing-wide" key={name}>{label}<textarea name={name} defaultValue={details[name]} maxLength={name==='paymentInstructions'?2000:4000} rows="3" /></label>)}
+  </fieldset>
+}
+
 function LineEditor({ initial,disabled }) {
   const [lines,setLines]=useState(initial?.length || 1)
   return <>
     {Array.from({length:lines},(_,i)=>{
       const line=initial?.[i]
       return <fieldset className="monitor-fields" key={i}><legend>Line item {i+1}</legend>
-        <label>Description<input name={'description'+i} required defaultValue={line?.description} /></label>
+        <label className="billing-wide">Description<textarea name={'description'+i} required maxLength="1500" rows="3" defaultValue={line?.description} /></label>
+        <label>Unit label<input name={'unitLabel'+i} maxLength="40" placeholder="e.g. hour, month, device" defaultValue={line?.unit_label} /></label>
         <label>Quantity<input name={'quantity'+i} type="number" min="1" defaultValue={line?.quantity ?? 1} required /></label>
         <label>Unit price<input name={'unit'+i} type="number" min="0" step=".01" defaultValue={line==null?'':Number(line.unit_minor)/100} required /></label>
         <label>Discount<input name={'discount'+i} type="number" min="0" step=".01" defaultValue={line==null?0:Number(line.discount_minor)/100} /></label>
         <label>Tax (%)<input name={'tax'+i} type="number" min="0" max="100" step=".01" defaultValue={line==null?0:line.tax_bps/100} /></label>
       </fieldset>
     })}
-    <div className="monitor-actions"><button type="button" disabled={disabled || lines===30} onClick={()=>setLines(lines+1)}>Add line</button>
-      <button type="button" disabled={disabled || lines===1} onClick={()=>setLines(lines-1)}>Remove last line</button></div>
+    <div className="monitor-actions"><button type="button" disabled={disabled || lines===100} onClick={()=>setLines(count=>Math.min(count+1,100))}>Add line</button>
+      <button type="button" disabled={disabled || lines===1} onClick={()=>setLines(count=>Math.max(count-1,1))}>Remove last line</button></div>
   </>
 }
 const documentFields=(values)=>({
-  currency:values.currency.toUpperCase(),due:values.due,
+  currency:values.currency.toUpperCase(),due:values.due,address:values.address,
+  details:Object.fromEntries(Object.keys(documentLabels).map(key=>[key,values[key]])),
   items:Object.keys(values).filter(key=>key.startsWith('description')).map(key=>{
     const i=key.slice('description'.length)
-    return { description:values[key],quantity:Number(values['quantity'+i]),unit:minor(values['unit'+i]),discount:minor(values['discount'+i]),tax:minor(values['tax'+i]) }
+    return { description:values[key],unitLabel:values['unitLabel'+i],quantity:Number(values['quantity'+i]),unit:minor(values['unit'+i]),discount:minor(values['discount'+i]),tax:minor(values['tax'+i]) }
   }),
 })
 
@@ -125,15 +144,20 @@ function Document({ api,recordId,revision,action,busy }) {
   return <section className="panel billing-document">
     <a className="screen-only" href="#billing">All billing documents</a>
     <div className="thread-heading"><div><h2>{doc.issuer}</h2><p>{title} · {doc.status}</p></div><span className="badge">{money(doc.total_minor,doc.currency)}</span></div>
-    <p>{doc.recipient}</p><p>{doc.recipient_address}</p><p>Issued {iso(doc.issued_on)||'—'} · Due {iso(doc.due_on)}</p>
+    <p>{doc.recipient}</p><p className="billing-prose">{doc.recipient_address}</p><p>Issued {iso(doc.issued_on)||'—'} · Due {iso(doc.due_on)}</p>
+    {Object.entries(documentLabels).slice(0,4).map(([key,label])=>doc.document_details?.[key] &&
+      <p key={key}><strong>{label}</strong> · {doc.document_details[key]}</p>)}
+    {doc.document_details?.scope && <div><h3>{documentLabels.scope}</h3><p className="billing-prose">{doc.document_details.scope}</p></div>}
     {doc.accepted_at && <p>Accepted {iso(doc.accepted_at)}</p>}
-    {doc.lines.map(line=><div className="row" key={line.position}><div><strong>{line.description}</strong><small>{line.quantity} × {money(line.unit_minor,doc.currency)} · {line.tax_bps/100}% tax</small></div><span>{money(line.total_minor,doc.currency)}</span></div>)}
+    {doc.lines.map(line=><div className="row" key={line.position}><div><strong className="billing-prose">{line.description}</strong><small>{line.quantity}{line.unit_label ? ' '+line.unit_label : ''} × {money(line.unit_minor,doc.currency)} · {line.tax_bps/100}% tax</small></div><span>{money(line.total_minor,doc.currency)}</span></div>)}
     <dl className="monitor-fields">
       <div><dt>Subtotal</dt><dd>{money(subtotal,doc.currency)}</dd></div>
       <div><dt>Discount</dt><dd>{money(discounts,doc.currency)}</dd></div>
       <div><dt>Tax</dt><dd>{money(Number(doc.total_minor)-subtotal+discounts,doc.currency)}</dd></div>
       {doc.kind==='invoice' && <div><dt>Balance due</dt><dd>{money(doc.balance,doc.currency)}</dd></div>}
     </dl>
+    {Object.entries(documentLabels).slice(5).map(([key,label])=>doc.document_details?.[key] &&
+      <div key={key}><h3>{label}</h3><p className="billing-prose">{doc.document_details[key]}</p></div>)}
     <div className="screen-only">
       <div className="monitor-actions">
         <button onClick={()=>window.print()}>Print or save as PDF</button>
@@ -146,7 +170,7 @@ function Document({ api,recordId,revision,action,busy }) {
         <form className="fields" onSubmit={event=>post('edit',documentFields(form(event)))}>
           <label>Currency<input name="currency" maxLength="3" required defaultValue={doc.currency} /></label>
           <label>Due date<input type="date" name="due" required defaultValue={iso(doc.due_on)} /></label>
-          <LineEditor initial={doc.lines} disabled={busy} /><button disabled={busy}>Save draft</button>
+          <DocumentDetailsEditor document={doc} /><LineEditor initial={doc.lines} disabled={busy} /><button disabled={busy}>Save draft</button>
         </form>
       </details>}
       {doc.staff && doc.kind==='quote' && doc.state==='accepted' && <button className="primary" disabled={busy} onClick={()=>action(async()=>{
@@ -207,7 +231,7 @@ function BillingOverview({ api,revision,action,busy }) {
       <label>Document type<select name="kind"><option value="quote">Quotation</option><option value="invoice">Invoice</option></select></label>
       <label>Currency<input name="currency" defaultValue="USD" maxLength="3" required /></label>
       <label>Due or expiry date<input name="due" type="date" required /></label>
-      <LineEditor disabled={busy} /><button className="primary" disabled={busy}>Save draft</button>
+      <DocumentDetailsEditor /><LineEditor disabled={busy} /><button className="primary" disabled={busy}>Save draft</button>
     </form>}
     {Object.entries(totals).map(([currency,total])=><div className="row" key={currency}>
       <div><strong>{currency}</strong><small>Invoiced {money(total.invoiced,currency)} · Cash recorded {money(total.cash,currency)} · Outstanding {money(total.balance,currency)}</small></div>

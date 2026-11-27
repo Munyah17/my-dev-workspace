@@ -1,7 +1,15 @@
 import { useState } from 'react'
 import { useRecord } from './useRecord.js'
 
-const providers=['Devin','Cursor','Claude']
+const aiProviders=['Devin','Cursor','Claude','Codex','ChatGPT']
+const infrastructure=['Vercel','Supabase','Cloudflare','Firebase','Netlify']
+const promptProviders=['Claude','Codex','ChatGPT']
+const scopeLabels={
+  Devin:'Devin organization ID',Claude:'Claude model ID',Codex:'OpenAI Codex model ID',ChatGPT:'OpenAI GPT model ID',
+  Vercel:'Vercel project ID or project ID/team ID',Supabase:'Supabase project reference',Cloudflare:'Cloudflare zone ID',
+  Firebase:'Firebase project ID',Netlify:'Netlify site ID',
+}
+const providers=[...aiProviders,...infrastructure]
 const kinds={'credit-note':'Credit note','debit-note':'Debit note',notice:'Notice',claim:'Claim',proposal:'Proposal',boq:'Bill of Quantities',bom:'Bill of Materials'}
 const directions={collection:'Collect from client',supplier:'Pay supplier',domain:'Renew domain'}
 const today=()=>new Date().toISOString().slice(0,10)
@@ -16,54 +24,81 @@ export function DeveloperTools({api,revision,action,busy}){
   const work=useRecord(api,'developer-tools/links',revision)
   const runs=useRecord(api,'developer-tools/runs',revision)
   const [provider,setProvider]=useState('Devin')
+  const [adding,setAdding]=useState(false)
+  const [useReference,setUseReference]=useState(false)
   const [workspace,setWorkspace]=useState('')
   const [statuses,setStatuses]=useState({})
   const scopes=catalog.value?.workspaces ?? []
   const selected=workspace || scopes[0]?.id
   const canEdit=scopes.some(scope=>scope.id===selected && scope.editable)
   const save=(path,payload)=>action(()=>api('developer-tools/'+path,payload))
-  return <section className="panel">
-    <h2>AI agents and models</h2>
-    <p className="empty">Connect provider credentials, attach agent runs to tasks, and keep Claude responses in MyDev.</p>
+  return <section id="configure-provider" className="panel">
+    <div className="thread-heading"><h2>AI agents and models</h2>
+      {canEdit && <button className="primary" aria-expanded={adding} onClick={()=>setAdding(value=>!value)}>{adding?'Close setup':'Add integration'}</button>}
+    </div>
+    <p className="empty">Connect provider credentials, attach agent runs to tasks, and keep model responses in MyDev.</p>
     {(catalog.error || work.error || runs.error) && <p className="error" role="alert">{catalog.error || work.error || runs.error}</p>}
     {scopes.length>1 && <label className="search app-picker">Workspace<select value={selected} onChange={event=>setWorkspace(event.target.value)}>
       {scopes.map(scope=><option key={scope.id} value={scope.id}>{scope.name}</option>)}
     </select></label>}
-    {providers.map(name=>{
+    {canEdit && adding && <section className="monitor-details">
+      <h3>Configure a provider</h3>
+      <form className="fields" onSubmit={event=>{
+        const element=event.currentTarget
+        const values=form(event)
+        action(async()=>{
+          await api('developer-tools/connections',{...values,provider,workspace:selected})
+          element.reset()
+          setAdding(false)
+        })
+      }}>
+        <label>Provider<select value={provider} onChange={event=>setProvider(event.target.value)}>{providers.map(name=><option key={name}>{name}</option>)}</select></label>
+        {useReference
+          ? <label>Server credential reference<input name="secretRef" pattern="[A-Z][A-Z0-9_]{0,40}" defaultValue="PRIMARY" required /></label>
+          : <label>{['Firebase','Supabase','Netlify','Vercel','Cloudflare'].includes(provider)?'API access token':'API key'}<input
+            type="password" name="apiKey" autoComplete="off" required maxLength="2048" /></label>}
+        <label className="checkbox"><input type="checkbox" checked={useReference} onChange={event=>setUseReference(event.target.checked)} />Use a server environment variable instead</label>
+        {!useReference && provider==='Firebase' && <small>Use a Google OAuth access token with access to this project.</small>}
+        {!useReference && provider==='Supabase' && <small>Use a personal access token from your Supabase account settings.</small>}
+        {!useReference && ['Codex','ChatGPT'].includes(provider) && <small>Use an OpenAI API key and a model ID available to that API project.</small>}
+        {provider!=='Cursor' && <label>{scopeLabels[provider]}<input key={provider} name="scope" required /></label>}
+        <button disabled={busy}>Save provider configuration</button>
+      </form>
+    </section>}
+    {[['AI providers',aiProviders],['Hosting and infrastructure',infrastructure]].map(([group,names])=><section key={group} className="monitor-details">
+      <h3>{group}</h3>
+      {names.map(name=>{
       const connection=catalog.value?.connections.find(item=>item.provider===name && item.workspace_id===selected)
       return <article key={name} className="row">
         <div><strong>{name}</strong><small>{connection?.checked_at?'Connection verified':connection?'Credential test pending':'Not configured'}</small>
-          {connection && canEdit && <small>Server environment variable <code>{connection.environmentKey}</code></small>}
+          {connection && <small>Scope {connection.verified_details?.name ?? connection.external_scope}{connection.verified_details?.status ? ' · '+connection.verified_details.status : ''}</small>}
+          {connection?.credential_stored && <small>API credential saved</small>}
+          {connection && canEdit && !connection.credential_stored && <small>Server environment variable <code>{connection.environmentKey}</code></small>}
         </div>
+        {!connection && canEdit && <button onClick={()=>{setProvider(name);setAdding(true);document.getElementById('configure-provider')?.scrollIntoView({block:'nearest'})}}>Add {name}</button>}
         {connection && canEdit && <div className="monitor-actions">
           <button disabled={busy} onClick={()=>save('connections/'+name+'/check',{workspace:selected})}>Test {name}</button>
           <button disabled={busy} onClick={()=>save('connections/'+name+'/disconnect',{workspace:selected})}>Disconnect {name}</button>
         </div>}
       </article>
-    })}
-    {canEdit && <details className="monitor-details"><summary>Configure an AI provider</summary>
-      <form className="fields" onSubmit={event=>save('connections',{...form(event),provider,workspace:selected})}>
-        <label>Provider<select value={provider} onChange={event=>setProvider(event.target.value)}>{providers.map(name=><option key={name}>{name}</option>)}</select></label>
-        <label>Server credential reference<input name="secretRef" pattern="[A-Z][A-Z0-9_]{0,40}" defaultValue="PRIMARY" required /></label>
-        {provider!=='Cursor' && <label>{provider==='Devin'?'Devin organization ID':'Claude model ID'}<input key={provider} name="scope" required /></label>}
-        <button disabled={busy}>Save provider configuration</button>
-      </form>
-    </details>}
+      })}
+    </section>)}
     {(work.value?.tasks.length??0)>0 && <>
       <details className="monitor-details"><summary>Link agent work to a task</summary>
         <form className="fields" onSubmit={event=>save('links',form(event))}>
           <TaskPicker tasks={work.value.tasks} />
-          <label>Provider<select name="provider">{providers.map(name=><option key={name}>{name}</option>)}</select></label>
+          <label>Provider<select name="provider">{aiProviders.map(name=><option key={name}>{name}</option>)}</select></label>
           <label>Work title<input name="title" maxLength="160" required /></label>
           <label>Provider session or agent URL<input name="url" type="url" required /></label>
           <button disabled={busy}>Save work link</button>
         </form>
       </details>
-      <details className="monitor-details"><summary>Ask Claude from a MyDev task</summary>
+      <details className="monitor-details"><summary>Ask a model from a MyDev task</summary>
         <form className="fields" onSubmit={event=>save('runs',form(event))}>
           <TaskPicker tasks={work.value.tasks} />
+          <label>Model provider<select name="provider">{promptProviders.map(name=><option key={name}>{name}</option>)}</select></label>
           <label>Prompt<textarea name="prompt" rows="4" maxLength="4000" required /></label>
-          <button className="primary" disabled={busy}>Run Claude prompt</button>
+          <button className="primary" disabled={busy}>Run model prompt</button>
         </form>
       </details>
     </>}
@@ -71,14 +106,14 @@ export function DeveloperTools({api,revision,action,busy}){
       <div><strong>{link.provider} · {link.title}</strong><small><a href={'#tasks/'+link.task_id}>{link.task_title}</a>{statuses[link.id]?' · '+statuses[link.id]:''}</small>
         <a href={link.url} target="_blank" rel="noreferrer">Open provider work</a></div>
       <div className="monitor-actions">
-        {link.provider!=='Claude' && <button disabled={busy} onClick={()=>action(async()=>{
+        {['Cursor','Devin'].includes(link.provider) && <button disabled={busy} onClick={()=>action(async()=>{
           const result=await api('developer-tools/links/'+link.id+'/status')
           setStatuses(current=>({...current,[link.id]:result.status}))
         })}>Check status</button>}
         <button disabled={busy} onClick={()=>save('links/'+link.id+'/remove',{})}>Remove</button>
       </div>
     </article>)}
-    {runs.value?.map(run=><details className="monitor-details" key={run.id}><summary>Claude · {run.task_title}</summary>
+    {runs.value?.map(run=><details className="monitor-details" key={run.id}><summary>{run.provider || 'Claude'} · {run.task_title}</summary>
       <p><strong>Prompt</strong></p><pre className="maintenance-diff">{run.prompt}</pre>
       <p><strong>Response</strong></p><pre className="maintenance-diff">{run.response}</pre>
     </details>)}

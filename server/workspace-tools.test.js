@@ -10,6 +10,7 @@ test('workspace tools preserve document totals, payroll scope, provider boundari
   const db=await openDatabase()
   const providerKey='MYDEV_64656D6F_ANTHROPIC_PRIMARY'
   const previous=process.env[providerKey]
+  const previousEncryptionKey=process.env.WORKSPACE_CREDENTIALS_KEY
   const realFetch=globalThis.fetch
   try{
     await initialize(db,true)
@@ -52,6 +53,62 @@ test('workspace tools preserve document totals, payroll scope, provider boundari
     assert.equal((await tools('runs'))[0].response,'Review completed.')
     await assert.rejects(tools('runs',undefined,'gents'),{status:404})
     await assert.rejects(tools('links',{task:task.id,provider:'Claude',title:'Invalid',url:'https://claude.ai.example.test/'}),{status:400})
+    const extra=[
+      ['Codex','codex-pilot','CODEX','api.openai.com','/v1/models/codex-pilot',{id:'codex-pilot'}],
+      ['ChatGPT','gpt-pilot','OPENAI','api.openai.com','/v1/models/gpt-pilot',{id:'gpt-pilot'}],
+      ['Vercel','prj_example/team_example','VERCEL','api.vercel.com','/v9/projects/prj_example?teamId=team_example',{id:'prj_example',name:'Vercel pilot'}],
+      ['Supabase','projectref','SUPABASE','api.supabase.com','/v1/projects/projectref',{id:'projectref',name:'Supabase pilot'}],
+      ['Cloudflare','zonefixture','CLOUDFLARE','api.cloudflare.com','/client/v4/zones/zonefixture',{success:true,result:{id:'zonefixture',name:'example.test'}}],
+      ['Firebase','firebase-pilot','FIREBASE','firebase.googleapis.com','/v1beta1/projects/firebase-pilot',{projectId:'firebase-pilot'}],
+      ['Netlify','netlify-pilot','NETLIFY','api.netlify.com','/api/v1/sites/netlify-pilot',{id:'netlify-pilot',name:'Netlify pilot'}],
+    ]
+    for (const [provider,scope,env,host,path,result] of extra){
+      const secret='MYDEV_64656D6F_'+env+'_FIXTURE'
+      const original=process.env[secret]
+      process.env[secret]='fixture-token'
+      try{
+        globalThis.fetch=async(url,options)=>{
+          const target=new URL(url)
+          assert.equal(target.host,host)
+          assert.equal(options.headers.Authorization,'Bearer fixture-token')
+          if(options.method==='POST'){
+            assert.equal(target.pathname,'/v1/responses')
+            assert.equal(JSON.parse(options.body).store,false)
+            return Response.json({output:[{content:[{type:'output_text',text:'Task response.'}]}]})
+          }
+          assert.equal(target.pathname+target.search,path)
+          return Response.json(result)
+        }
+        await tools('connections',{workspace,provider,secretRef:'FIXTURE',scope})
+        await tools('connections/'+provider+'/check',{workspace})
+        const connection=(await tools('connections')).connections.find(item=>item.provider===provider)
+        assert.ok(connection.verified_details.name)
+        assert.equal(Object.values(connection).includes('fixture-token'),false)
+        if(provider==='Codex'||provider==='ChatGPT'){
+          await tools('runs',{task:task.id,provider,prompt:'Summarize this task.'})
+          assert.ok((await tools('runs')).some(item=>item.provider===provider && item.response==='Task response.'))
+        }
+      }finally{ if(original===undefined) delete process.env[secret];else process.env[secret]=original }
+    }
+    process.env.WORKSPACE_CREDENTIALS_KEY='fixture-encryption-material-long-enough'
+    const pastedKey='fixture-pasted-provider-token'
+    const configuration={workspace,provider:'Cloudflare',scope:'zonefixture',apiKey:pastedKey}
+    await assert.rejects(tools('connections',configuration,'gents'),{status:404})
+    assert.equal((await tools('connections',configuration)).credentialStored,true)
+    const saved=(await tools('connections')).connections.find(item=>item.provider==='Cloudflare')
+    assert.equal(saved.credential_stored,true)
+    assert.equal(saved.ciphertext,undefined)
+    assert.equal(JSON.stringify(saved).includes(pastedKey),false)
+    const {rows:[stored]}=await scopedTransaction(db,tx=>tx.query("SELECT ciphertext FROM developer_connection_secrets WHERE provider='Cloudflare'"))
+    assert.ok(stored.ciphertext)
+    assert.equal(stored.ciphertext.includes(pastedKey),false)
+    globalThis.fetch=async(_url,options)=>{
+      assert.equal(options.headers.Authorization,'Bearer '+pastedKey)
+      return Response.json({success:true,result:{id:'zonefixture',name:'example.test'}})
+    }
+    await tools('connections/Cloudflare/check',{workspace})
+    await tools('connections/Cloudflare/disconnect',{workspace})
+    assert.equal((await scopedTransaction(db,tx=>tx.query('SELECT * FROM developer_connection_secrets'))).rows.length,0)
     const link=await tools('links',{task:task.id,provider:'Cursor',title:'Review agent',url:'https://cursor.com/agents/bc-fixture'})
     assert.equal((await tools('links')).links[0].id,link.id)
     assert.deepEqual(await call('platform','access'),{allowed:false})
@@ -62,6 +119,8 @@ test('workspace tools preserve document totals, payroll scope, provider boundari
     assert.equal((await call('platform','workspaces'))[0].plan,'agency')
     await assert.rejects(call('platform','workspaces',undefined,'other'),{status:404})
   }finally{
+    if(previousEncryptionKey===undefined) delete process.env.WORKSPACE_CREDENTIALS_KEY
+    else process.env.WORKSPACE_CREDENTIALS_KEY=previousEncryptionKey
     globalThis.fetch=realFetch
     if(previous===undefined) delete process.env[providerKey]
     else process.env[providerKey]=previous

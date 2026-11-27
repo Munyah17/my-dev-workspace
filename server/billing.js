@@ -25,15 +25,21 @@ export function currency(value) {
   return value
 }
 function items(values) {
-  if (!Array.isArray(values) || !values.length || values.length>30) throw fail(400,'Provide one to 30 line items.')
+  if (!Array.isArray(values) || !values.length || values.length>100) throw fail(400,'Provide one to 100 line items.')
   return values.map((item,index) => {
     const quantity=integer(item.quantity,1,10000)
     const unit=integer(item.unit,0,100000000)
     const discount=integer(item.discount ?? 0,0,quantity*unit)
     const tax=integer(item.tax ?? 0,0,10000)
     const net=quantity*unit-discount
-    return [index+1,text(item.description,500),quantity,unit,discount,tax,net+Math.round(net*tax/10000)]
+    return [index+1,text(item.description,1500),quantity,unit,discount,tax,net+Math.round(net*tax/10000),text(item.unitLabel,40,false)]
   })
+}
+function documentDetails(value={}) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw fail(400,'Check the document details.')
+  const limits={ title:160,reference:160,purchaseOrder:160,attention:160,scope:4000,terms:4000,paymentInstructions:2000 }
+  return Object.fromEntries(Object.entries(limits)
+    .map(([key,limit])=>[key,text(value[key],limit,false)]).filter(([,value])=>value))
 }
 const dateOnly=value=>value instanceof Date ? value.toISOString().slice(0,10) : String(value).slice(0,10)
 const today = () => new Date().toISOString().slice(0,10)
@@ -52,6 +58,11 @@ export async function billingRoute(tx,{ method,pathname,body,account,search }) {
   if (extra) throw fail(404,'Record not found.')
   if (!(await query("SELECT to_regclass('workspace_private.billing_documents') IS NOT NULL AS ready"))[0].ready)
     throw fail(503,'Billing needs the Phase 4 database migration.')
+  const saveLines = async (document,lines) => {
+    for (const line of lines) await query(`INSERT INTO billing_items
+      (document_id,position,description,quantity,unit_minor,discount_minor,tax_bps,total_minor,unit_label)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,[document,...line])
+  }
   const scopes = await query('SELECT * FROM billing_scopes()')
   const requireStaff = workspace => {
     if (!scopes.some(item => item.id===workspace)) throw fail(404,'Billing record not found.')
@@ -121,10 +132,10 @@ export async function billingRoute(tx,{ method,pathname,body,account,search }) {
     if (!organization) throw fail(404,'Client not found.')
     const [profile]=await query('SELECT address FROM billing_profiles WHERE workspace_id=$1 AND organization_id=$2',[body.workspace,organization.id])
     const lines=items(body.items)
-    const [document]=await query(`INSERT INTO billing_documents(workspace_id,organization_id,kind,currency,due_on,issuer,recipient,recipient_address,total_minor)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,[body.workspace,organization.id,body.kind,currency(body.currency),date(body.due),
-      scopes.find(item=>item.id===body.workspace).name,organization.name,profile?.address ?? '',lines.reduce((sum,line)=>sum+line[6],0)])
-    for (const line of lines) await query('INSERT INTO billing_items VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[document.id,...line])
+    const [document]=await query(`INSERT INTO billing_documents(workspace_id,organization_id,kind,currency,due_on,issuer,recipient,recipient_address,total_minor,document_details)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,[body.workspace,organization.id,body.kind,currency(body.currency),date(body.due),
+      scopes.find(item=>item.id===body.workspace).name,organization.name,text(body.address,1000,false) || profile?.address || '',lines.reduce((sum,line)=>sum+line[6],0),JSON.stringify(documentDetails(body.details))])
+    await saveLines(document.id,lines)
     await audit(body.workspace,'draft created',document.id)
     return document
   }
@@ -148,9 +159,11 @@ export async function billingRoute(tx,{ method,pathname,body,account,search }) {
       if (operation==='edit' && locked.state==='draft') {
         const lines=items(body.items)
         await query('DELETE FROM billing_items WHERE document_id=$1',[doc.id])
-        for (const line of lines) await query('INSERT INTO billing_items VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[doc.id,...line])
-        await query('UPDATE billing_documents SET currency=$2,due_on=$3,total_minor=$4 WHERE id=$1',[
+        await saveLines(doc.id,lines)
+        await query('UPDATE billing_documents SET currency=$2,due_on=$3,total_minor=$4,document_details=$5,recipient_address=$6 WHERE id=$1',[
           doc.id,currency(body.currency),date(body.due),lines.reduce((sum,line)=>sum+line[6],0),
+          JSON.stringify(body.details===undefined ? locked.document_details : documentDetails(body.details)),
+          body.address===undefined ? locked.recipient_address : text(body.address,1000,false),
         ])
       } else if (operation==='issue' && locked.state==='draft') {
         if (dateOnly(locked.due_on)<today()) throw fail(400,'Due date must be today or later.')
@@ -160,10 +173,12 @@ export async function billingRoute(tx,{ method,pathname,body,account,search }) {
       } else if (operation==='convert' && locked.kind==='quote' && locked.state==='accepted') {
         const [existing]=await query('SELECT id FROM billing_documents WHERE source_quote=$1',[doc.id])
         if (existing) return existing
-        const [invoice]=await query(`INSERT INTO billing_documents(workspace_id,organization_id,kind,currency,due_on,issuer,recipient,recipient_address,source_quote,total_minor)
-          VALUES($1,$2,'invoice',$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
-        [doc.workspace_id,doc.organization_id,doc.currency,date(body.due),doc.issuer,doc.recipient,doc.recipient_address,doc.id,doc.total_minor])
-        await query(`INSERT INTO billing_items SELECT $1,position,description,quantity,unit_minor,discount_minor,tax_bps,total_minor
+        const [invoice]=await query(`INSERT INTO billing_documents(workspace_id,organization_id,kind,currency,due_on,issuer,recipient,recipient_address,source_quote,total_minor,document_details)
+          VALUES($1,$2,'invoice',$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+        [doc.workspace_id,doc.organization_id,doc.currency,date(body.due),doc.issuer,doc.recipient,doc.recipient_address,doc.id,doc.total_minor,JSON.stringify(doc.document_details)])
+        await query(`INSERT INTO billing_items
+          (document_id,position,description,quantity,unit_minor,discount_minor,tax_bps,total_minor,unit_label)
+          SELECT $1,position,description,quantity,unit_minor,discount_minor,tax_bps,total_minor,unit_label
           FROM billing_items WHERE document_id=$2`,[invoice.id,doc.id])
         await audit(doc.workspace_id,'quote converted',invoice.id)
         return invoice

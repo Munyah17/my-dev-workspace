@@ -74,3 +74,7 @@
 .crm-search-icon{position:absolute;left:.95rem;width:.8rem;height:.8rem;border:2px solid var(--muted);border-radius:50%;pointer-events:none}
 .crm-search-icon::after{content:"";position:absolute;right:-.3rem;bottom:-.2rem;width:.42rem;height:2px;background:var(--muted);transform:rotate(45deg)}
 .document-prose{white-space:pre-wrap;overflow-wrap:anywhere;margin:.7rem 0}
+
+.billing-wide { grid-column: 1 / -1; }
+.billing-prose { white-space: pre-wrap; overflow-wrap: anywhere; }
+.billing-document .row > div { min-width: 0; }

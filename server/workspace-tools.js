@@ -1,4 +1,5 @@
-import { checkDeveloperConnection,developerStatus,providerSecretName,runClaude } from './developer-providers.js'
+import { sealProviderKey } from './provider-secrets.js'
+import { checkDeveloperConnection,developerStatus,providerSecretName,promptProviders,runDeveloperModel,validateProviderScope } from './developer-providers.js'
 import { currency,date,integer,text } from './billing.js'
 
 const fail=(status,message)=>Object.assign(Error(message),{status})
@@ -11,6 +12,8 @@ const hosts={
   Devin:['app.devin.ai','devin.ai'],
   Cursor:['cursor.com','www.cursor.com','agents.cursor.com'],
   Claude:['claude.ai','www.claude.ai'],
+  Codex:['chatgpt.com'],
+  ChatGPT:['chatgpt.com'],
 }
 const kinds=['credit-note','debit-note','notice','claim','proposal','boq','bom']
 const types=[
@@ -41,10 +44,14 @@ export async function workspaceToolsRoute(tx,{method,pathname,body,account,searc
   }
   if(area==='developer-tools'){
     if(!account.agency) throw fail(404,'Developer tools not found.')
+    const connectionSql=`SELECT c.*,s.ciphertext FROM developer_connections c LEFT JOIN developer_connection_secrets s
+      ON s.workspace_id=c.workspace_id AND s.provider=c.provider WHERE c.workspace_id=$1 AND c.provider=$2`
     if(resource==='connections'){
       if(method==='GET' && !key){
         const workspaces=await query('SELECT w.*,developer_workspace_owner(w.id) AS editable FROM maintenance_workspaces() w')
-        const connections=(await query('SELECT * FROM developer_connections ORDER BY provider')).map(connection=>({
+        const connections=(await query(`SELECT c.*,EXISTS(SELECT 1 FROM developer_connection_secrets s
+          WHERE s.workspace_id=c.workspace_id AND s.provider=c.provider) AS credential_stored
+          FROM developer_connections c ORDER BY provider`)).map(connection=>({
           ...connection,environmentKey:providerSecretName(connection),
         }))
         return {workspaces,connections}
@@ -53,20 +60,25 @@ export async function workspaceToolsRoute(tx,{method,pathname,body,account,searc
         const workspace=text(body.workspace,120)
         if(!(await query('SELECT developer_workspace_owner($1) AS allowed',[workspace]))[0].allowed)
           throw fail(404,'Workspace not found.')
-        if(!Object.hasOwn(hosts,body.provider) || !/^[A-Z][A-Z0-9_]{0,40}$/.test(body.secretRef??''))
-          throw fail(400,'Choose a provider and a valid server credential reference.')
-        const scope=body.provider==='Cursor'?'Cloud Agents':text(body.scope,100)
-        if(body.provider!=='Cursor' && !/^[a-zA-Z0-9_-]{3,100}$/.test(scope)) throw fail(400,'Enter a valid organization or model ID.')
+        const scope=body.provider==='Cursor'?'Cloud Agents':text(body.scope,180)
+        const secretRef=body.apiKey?'PRIMARY':body.secretRef
+        if(!validateProviderScope(body.provider,scope) || !/^[A-Z][A-Z0-9_]{0,40}$/.test(secretRef??''))
+          throw fail(400,'Choose a provider, resource identifier, and valid server credential reference.')
         const [connection]=await query(`INSERT INTO developer_connections(workspace_id,provider,secret_ref,external_scope)
           VALUES($1,$2,$3,$4) ON CONFLICT(workspace_id,provider) DO UPDATE SET secret_ref=excluded.secret_ref,
-          external_scope=excluded.external_scope,checked_at=NULL RETURNING *`,[workspace,body.provider,body.secretRef,scope])
-        return {environmentKey:providerSecretName(connection)}
+          external_scope=excluded.external_scope,checked_at=NULL,verified_details=NULL RETURNING *`,[workspace,body.provider,secretRef,scope])
+        if(body.apiKey){
+          const sealed=sealProviderKey(connection,body.apiKey)
+          await query(`INSERT INTO developer_connection_secrets VALUES($1,$2,$3)
+            ON CONFLICT(workspace_id,provider) DO UPDATE SET ciphertext=excluded.ciphertext`,[workspace,body.provider,sealed])
+        }else await query('DELETE FROM developer_connection_secrets WHERE workspace_id=$1 AND provider=$2',[workspace,body.provider])
+        return {environmentKey:providerSecretName(connection),credentialStored:Boolean(body.apiKey)}
       }
       if(method==='POST' && key && operation==='check'){
-        const [connection]=await query('SELECT * FROM developer_connections WHERE workspace_id=$1 AND provider=$2',[text(body.workspace,120),key])
+        const [connection]=await query(connectionSql,[text(body.workspace,120),key])
         if(!connection || !(await query('SELECT developer_workspace_owner($1) AS allowed',[connection.workspace_id]))[0].allowed) throw fail(404,'Connection not found.')
-        await checkDeveloperConnection(connection)
-        await query('UPDATE developer_connections SET checked_at=now() WHERE workspace_id=$1 AND provider=$2',[connection.workspace_id,key])
+        const details=await checkDeveloperConnection(connection)
+        await query('UPDATE developer_connections SET checked_at=now(),verified_details=$3 WHERE workspace_id=$1 AND provider=$2',[connection.workspace_id,key,details])
         return {checked:true}
       }
       if(method==='POST' && key && operation==='disconnect'){
@@ -82,19 +94,21 @@ export async function workspaceToolsRoute(tx,{method,pathname,body,account,searc
       if(method==='POST' && !key){
         const [task]=await query('SELECT id,workspace_id,title FROM maintenance_tasks WHERE id=$1',[id(body.task)])
         if(!task) throw fail(404,'Task not found.')
-        const [connection]=await query("SELECT * FROM developer_connections WHERE workspace_id=$1 AND provider='Claude' AND checked_at IS NOT NULL",[task.workspace_id])
-        if(!connection) throw fail(409,'Configure and test Claude for this task’s workspace first.')
+        const provider=body.provider ?? 'Claude'
+        if(!promptProviders.includes(provider)) throw fail(400,'Choose a model provider.')
+        const [connection]=await query(connectionSql+' AND c.checked_at IS NOT NULL',[task.workspace_id,provider])
+        if(!connection) throw fail(409,'Configure and test '+provider+' for this task’s workspace first.')
         const prompt=text(body.prompt,4000)
-        const response=await runClaude(connection,'Task: '+task.title+'\n\n'+prompt)
-        return (await query('INSERT INTO developer_model_runs(task_id,actor_id,model,prompt,response) VALUES($1,$2,$3,$4,$5) RETURNING id',[
-          task.id,account.id,connection.external_scope,prompt,response,
+        const response=await runDeveloperModel(connection,'Task: '+task.title+'\n\n'+prompt)
+        return (await query('INSERT INTO developer_model_runs(task_id,actor_id,model,prompt,response,provider) VALUES($1,$2,$3,$4,$5,$6) RETURNING id',[
+          task.id,account.id,connection.external_scope,prompt,response,provider,
         ]))[0]
       }
     }
     if(resource==='links' && key && operation==='status' && method==='GET'){
       const [link]=await query('SELECT l.*,t.workspace_id FROM developer_work_links l JOIN maintenance_tasks t ON t.id=l.task_id WHERE l.id=$1',[id(key)])
       if(!link || !['Devin','Cursor'].includes(link.provider)) throw fail(404,'Remote agent link not found.')
-      const [connection]=await query('SELECT * FROM developer_connections WHERE workspace_id=$1 AND provider=$2 AND checked_at IS NOT NULL',[link.workspace_id,link.provider])
+      const [connection]=await query(connectionSql+' AND c.checked_at IS NOT NULL',[link.workspace_id,link.provider])
       if(!connection) throw fail(409,'Configure and test the provider first.')
       return developerStatus(connection,link)
     }

@@ -32,15 +32,42 @@ export async function migrateWorkspaceTools(tx) {
   if (!rows[0].installed) await tx.exec(await readFile(new URL('./workspace-tools.sql', import.meta.url), 'utf8'))
 }
 
+export async function migrateIntegrationCatalog(tx) {
+  await tx.query('SELECT pg_advisory_xact_lock(231042007)')
+  const { rows } = await tx.query(`SELECT EXISTS(SELECT 1 FROM information_schema.columns
+    WHERE table_schema='workspace_private' AND table_name='developer_connections' AND column_name='verified_details') AS installed`)
+  if (!rows[0].installed) await tx.exec(await readFile(new URL('./integration-catalog.sql', import.meta.url), 'utf8'))
+}
+
+export async function migrateIntegrationCredentials(tx) {
+  await tx.query('SELECT pg_advisory_xact_lock(231042008)')
+  const { rows } = await tx.query("SELECT to_regclass('workspace_private.developer_connection_secrets') IS NOT NULL AS installed")
+  if (!rows[0].installed) await tx.exec(await readFile(new URL('./integration-credentials.sql', import.meta.url), 'utf8'))
+}
+
+export async function migrateBillingEditor(tx) {
+  await tx.query('SELECT pg_advisory_xact_lock(231042009)')
+  const { rows } = await tx.query(`SELECT EXISTS(SELECT 1 FROM information_schema.columns
+    WHERE table_schema='workspace_private' AND table_name='billing_documents' AND column_name='document_details') AS installed`)
+  if (!rows[0].installed) await tx.exec(await readFile(new URL('./billing-editor.sql', import.meta.url), 'utf8'))
+}
+
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
   const url = process.env.SUPABASE_ADMIN_DATABASE_URL
   if (!url) throw new Error('Set SUPABASE_ADMIN_DATABASE_URL for migrations.')
   const db = await openDatabase({ url })
   try {
     await scopedTransaction(db, async tx => {
-      if (process.argv.includes('--workspace-tools')) return migrateWorkspaceTools(tx)
+      if (process.argv.includes('--workspace-tools')) {
+        await migrateWorkspaceTools(tx)
+        await migrateIntegrationCatalog(tx)
+        return migrateIntegrationCredentials(tx)
+      }
       if (process.argv.includes('--operations')) return migrateOperations(tx)
-      if (process.argv.includes('--billing')) return migrateBilling(tx)
+      if (process.argv.includes('--billing')) {
+        await migrateBilling(tx)
+        return migrateBillingEditor(tx)
+      }
       await migrateMonitoring(tx)
       if (process.argv.includes('--maintenance')) await migrateMaintenance(tx)
     })
