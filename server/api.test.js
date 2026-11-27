@@ -51,7 +51,7 @@ test('ticket, replies and files persist across restart and stay within authorize
     assert.equal((await server.fetch('demo-login','',{account:'agency'},{'content-type':'text/plain'})).status,415)
     assert.equal((await server.fetch('demo-login','',{account:'unknown'})).status,401)
     assert.equal((await server.fetch('login','',{email:'agency@example.test',password:'workspace-demo'})).status,401)
-    for (const path of ['tickets','notifications','billing/summary','operations/overview','maintenance/catalog','monitoring']) {
+    for (const path of ['dashboard/core','tickets','notifications','billing/summary','operations/overview','maintenance/catalog','monitoring']) {
       assert.equal((await server.fetch(path,'')).status,401,path)
     }
     const client = await server.login('gents')
@@ -67,6 +67,10 @@ test('ticket, replies and files persist across restart and stay within authorize
     const { id } = await response.json()
     const path = 'tickets/' + id
     const notices = await (await server.fetch('notifications', agency)).json()
+    const [dashboardTickets,dashboardProjects,dashboardNotifications] = await (await server.fetch('dashboard/core',agency)).json()
+    assert.equal(dashboardTickets[0].id,id)
+    assert.ok(dashboardProjects.some(project=>project.id==='gents-staff'))
+    assert.deepEqual(dashboardNotifications,notices)
     assert.equal(notices[0].ticket_id, id)
     assert.equal(notices[0].read, false)
     assert.equal((await server.fetch('notifications/' + notices[0].id + '/read', agency, {})).status, 200)

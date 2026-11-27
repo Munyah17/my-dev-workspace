@@ -27,3 +27,10 @@ test('other providers and explicit trust configuration retain their connection s
     assert.deepEqual(postgresConnectionOptions(connectionString), { connectionString })
   }
 })
+
+test('the hosted pooler uses transaction mode and retains certificate verification', () => {
+  const config = postgresConnectionOptions('postgresql://role@aws-1-eu-west-1.pooler.supabase.com:5432/postgres?sslmode=verify-full', { serverless:true })
+  const client = new pg.Client(config)
+  assert.equal(client.port,6543)
+  assert.equal(client.connectionParameters.ssl.rejectUnauthorized,true)
+})

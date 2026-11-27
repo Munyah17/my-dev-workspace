@@ -51,12 +51,18 @@ export default function App() {
   const [query, setQuery] = useState('')
   const [searchResults, setSearchResults] = useState(null)
   const [error, setError] = useState('')
+  const [refreshError, setRefreshError] = useState('')
+  const [theme, setTheme] = useState(() => {
+    try { return localStorage.getItem('mydev-theme') === 'dark' ? 'dark' : 'light' }
+    catch { return 'light' }
+  })
   const [detailError, setDetailError] = useState('')
   const [busy, setBusy] = useState(false)
   const [revision, setRevision] = useState(0)
 
   function clearSession() {
     setUser(null)
+    setRefreshError('')
     setTickets([])
     setProjects([])
     setNotifications([])
@@ -69,6 +75,12 @@ export default function App() {
   }
 
   useEffect(() => {
+    document.documentElement.dataset.theme = theme
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#121c30' : '#FFFFFF')
+    try { localStorage.setItem('mydev-theme', theme) } catch { /* Preference is optional. */ }
+  }, [theme])
+
+  useEffect(() => {
     const change = () => { setRoute(currentRoute()); setError('') }
     window.addEventListener('hashchange', change)
     api('config').then(result => setDemo(result.demo)).catch(() => {})
@@ -79,18 +91,25 @@ export default function App() {
   useEffect(() => {
     if (!user) return
     let active = true
+    let timer
     const refresh = async () => {
       try {
-        const [nextTickets, nextProjects, nextNotifications] = await Promise.all([api('tickets'), api('projects'), api('notifications')])
-        if (active) { setTickets(nextTickets); setProjects(nextProjects); setNotifications(nextNotifications) }
+        const [nextTickets, nextProjects, nextNotifications] = await api('dashboard/core')
+        if (active) {
+          setTickets(nextTickets)
+          setProjects(nextProjects)
+          setNotifications(nextNotifications)
+          setRefreshError('')
+        }
       } catch (problem) {
         if (active && problem.status === 401) clearSession()
-        else if (active) setError(problem.message)
+        else if (active) setRefreshError(problem.message)
+      } finally {
+        if (active) timer = setTimeout(refresh, 4000)
       }
     }
     refresh()
-    const timer = setInterval(refresh, 4000)
-    return () => { active = false; clearInterval(timer) }
+    return () => { active = false; clearTimeout(timer) }
   }, [user, revision])
 
   useEffect(() => {
@@ -161,7 +180,7 @@ export default function App() {
   if (user === undefined) return <main className="login"><p>Opening workspace…</p></main>
   if (!user) return <main className="login">
     <div className="login-card">
-      <Brand />
+      <div className="login-brand"><Brand /><ThemeSwitch theme={theme} onChange={setTheme} /></div>
       <h1>Sign in to your workspace</h1>
       {error && <p role="alert" className="error">{error}</p>}
       <form className="fields" onSubmit={event => {
@@ -202,9 +221,11 @@ export default function App() {
       </div>
     </aside>
     <main className="main">
-      <header className="topbar"><span>{sections[section]}</span>{demo && <span className="badge demo-badge">Demo workspace</span>}</header>
+      <header className="topbar"><span>{sections[section]}</span><div className="topbar-actions">
+        {demo && <span className="badge demo-badge">Demo workspace</span>}<ThemeSwitch theme={theme} onChange={setTheme} />
+      </div></header>
       <div className="content">
-        {error && <p role="alert" className="error">{error}</p>}
+        {(error || refreshError) && <p role="alert" className="error">{error || refreshError}</p>}
         <div className="heading">
           <div><h1>{sections[section]}</h1>
             <p>{section === 'today' ? 'Support activity across your authorized projects.' : section === 'inbox' ? 'Report an issue and keep the conversation in one place.' : section === 'maintenance' ? 'Review tickets, record internal notes, and prepare staging work.' : null}</p></div>
@@ -281,6 +302,13 @@ export default function App() {
       </div>
     </main>
   </div>
+}
+
+function ThemeSwitch({ theme, onChange }) {
+  return <button type="button" className="theme-switch" role="switch" aria-label="Dark mode" aria-checked={theme === 'dark'}
+    onClick={() => onChange(theme === 'dark' ? 'light' : 'dark')}>
+    <span aria-hidden="true">☀</span><span aria-hidden="true">☾</span>
+  </button>
 }
 
 function Brand({ compact = false }) {

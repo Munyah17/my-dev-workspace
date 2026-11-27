@@ -1,4 +1,13 @@
-:root{font-family:"Inter Variable",Inter,ui-sans-serif,system-ui,sans-serif;color:#101B35;background:#f5f7fb;font-synthesis:none;line-height:1.5;--ink:#101B35;--muted:#5b6880;--border:#dce4ef;--accent:#1555ED;--selection:#EEF4FF;--surface:#FFFFFF}
-*{box-sizing:border-box}body{margin:0;min-width:320px}a{color:var(--accent);text-underline-offset:3px}button,input,textarea,select{font:inherit}button,select{cursor:pointer}button:disabled{opacity:.55;cursor:wait}button{background:white;border:1px solid var(--border);border-radius:8px;padding:.55rem .8rem;color:inherit}p,h1,h2{margin:0}small{color:var(--muted);font-size:.82rem}:focus-visible{outline:3px solid #6388ff;outline-offset:3px}
+:root{font-family:"Inter Variable",Inter,ui-sans-serif,system-ui,sans-serif;color:var(--ink);background:var(--canvas);color-scheme:light;font-synthesis:none;line-height:1.5;--ink:#101B35;--muted:#5b6880;--border:#dce4ef;--accent:#1555ED;--selection:#EEF4FF;--surface:#FFFFFF;--canvas:#f5f7fb;--raised:#f7f9fc;--control-border:#b8c5d8;--primary:#1555ED;--primary-hover:#1144C1;--error-bg:#ffedf0;--error-ink:#85111c;--warning-bg:#fff2d6;--warning-ink:#684000;--success-bg:#e7f6ec;--success-ink:#205738}
+*{box-sizing:border-box}body{margin:0;min-width:320px}a{color:var(--accent);text-underline-offset:3px}button,input,textarea,select{font:inherit}button,select{cursor:pointer}button:disabled{opacity:.55;cursor:wait}button{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:.55rem .8rem;color:inherit}p,h1,h2{margin:0}small{color:var(--muted);font-size:.82rem}:focus-visible{outline:3px solid #6388ff;outline-offset:3px}
 
 h1,h2,h3{font-weight:600}.metric strong,time,.row small,.message small,.monitor-fields dd{font-variant-numeric:tabular-nums}
+
+:root[data-theme=dark]{
+  color-scheme:dark;
+  --ink:#edf3ff;--muted:#aebdd5;--border:#34445e;--accent:#a3beff;
+  --selection:#24395e;--surface:#121c30;--canvas:#0d1525;--raised:#18253b;--control-border:#526481;
+  --primary:#285fe2;--primary-hover:#2352c4;
+  --error-bg:#482431;--error-ink:#ffd4dc;--warning-bg:#43341b;--warning-ink:#ffe3a8;
+  --success-bg:#19392d;--success-ink:#b8f0d4;
+}

@@ -174,35 +174,45 @@ export async function createApi({ dataDir, demo = false, supabase } = {}) {
         const result = await transaction(async tx => {
           await tx.exec('SET LOCAL ROLE workspace_app')
           await tx.query("SELECT set_config('workspace.actor',$1,true)", [account.id])
-          if (method === 'GET' && url === '/api/projects') return (await tx.query('SELECT id,name FROM projects ORDER BY name')).rows
-          if (method === 'GET' && url === '/api/tickets') return (await tx.query(
-            `SELECT t.id,t.subject,t.state,p.name project,t.created_at FROM tickets t JOIN projects p ON p.id=t.project_id
-             WHERE t.subject ILIKE '%' || $1 || '%' ORDER BY t.created_at DESC,t.id`, [new URL(req.url,'http://localhost').searchParams.get('q') ?? ''],
-          )).rows
+          const readCore = async path => {
+            if (path === '/api/projects') return (await tx.query('SELECT id,name FROM projects ORDER BY name')).rows
+            if (path === '/api/tickets') return (await tx.query(
+              `SELECT t.id,t.subject,t.state,p.name project,t.created_at FROM tickets t JOIN projects p ON p.id=t.project_id
+               WHERE t.subject ILIKE '%' || $1 || '%' ORDER BY t.created_at DESC,t.id`, [new URL(req.url,'http://localhost').searchParams.get('q') ?? ''],
+            )).rows
+            if (path === '/api/notifications' && account.agency && await monitoringReady(tx)) {
+              return (await tx.query(`
+                SELECT * FROM (
+                  SELECT msg.id,msg.ticket_id,NULL::uuid AS incident_id,NULL::uuid AS monitor_id,t.subject,msg.created_at,(r.message_id IS NOT NULL) AS read
+                  FROM messages msg JOIN tickets t ON t.id=msg.ticket_id LEFT JOIN notification_reads r ON r.message_id=msg.id
+                  WHERE msg.author_id<>actor()
+                  UNION ALL
+                  SELECT e.id,NULL::uuid,e.incident_id,e.monitor_id,
+                    p.name || ' · ' || m.name || ' · ' || CASE e.kind WHEN 'incident' THEN 'Incident opened' WHEN 'recovery' THEN 'Recovered' ELSE 'Monitor needs attention' END,
+                    e.created_at,(r.event_id IS NOT NULL)
+                  FROM monitoring_events e JOIN monitors m ON m.id=e.monitor_id JOIN projects p ON p.id=m.project_id
+                  LEFT JOIN monitoring_event_reads r ON r.event_id=e.id
+                ) activity ORDER BY created_at DESC LIMIT 100`)).rows
+            }
+            if (path === '/api/notifications') return (await tx.query(
+              `SELECT m.id,m.ticket_id,t.subject,m.created_at,(r.message_id IS NOT NULL) AS read
+               FROM messages m JOIN tickets t ON t.id=m.ticket_id
+               LEFT JOIN notification_reads r ON r.message_id=m.id
+               WHERE m.author_id<>actor() ORDER BY m.created_at DESC LIMIT 100`,
+            )).rows
+          }
+          if (method === 'GET') {
+            if (url === '/api/dashboard/core') return [
+              await readCore('/api/tickets'),
+              await readCore('/api/projects'),
+              await readCore('/api/notifications'),
+            ]
+            if (['/api/tickets','/api/projects','/api/notifications'].includes(url)) return readCore(url)
+          }
           if (url.startsWith('/api/operations/')) return operationsRoute(tx,{ method,pathname:url,body,account,search:new URL(req.url,'http://localhost').searchParams })
           if (url.startsWith('/api/billing/')) return billingRoute(tx, { method, pathname:url, body, account, search:new URL(req.url,'http://localhost').searchParams })
           if (url.startsWith('/api/maintenance/')) return maintenanceRoute(tx, { method, pathname: url, body, account })
           if (url === '/api/monitoring' || url.startsWith('/api/monitoring/')) return monitoringRoute(tx, { method, pathname: url, body, account, addMessage })
-          if (method === 'GET' && url === '/api/notifications' && account.agency && await monitoringReady(tx)) {
-            return (await tx.query(`
-              SELECT * FROM (
-                SELECT msg.id,msg.ticket_id,NULL::uuid AS incident_id,NULL::uuid AS monitor_id,t.subject,msg.created_at,(r.message_id IS NOT NULL) AS read
-                FROM messages msg JOIN tickets t ON t.id=msg.ticket_id LEFT JOIN notification_reads r ON r.message_id=msg.id
-                WHERE msg.author_id<>actor()
-                UNION ALL
-                SELECT e.id,NULL::uuid,e.incident_id,e.monitor_id,
-                  p.name || ' · ' || m.name || ' · ' || CASE e.kind WHEN 'incident' THEN 'Incident opened' WHEN 'recovery' THEN 'Recovered' ELSE 'Monitor needs attention' END,
-                  e.created_at,(r.event_id IS NOT NULL)
-                FROM monitoring_events e JOIN monitors m ON m.id=e.monitor_id JOIN projects p ON p.id=m.project_id
-                LEFT JOIN monitoring_event_reads r ON r.event_id=e.id
-              ) activity ORDER BY created_at DESC LIMIT 100`)).rows
-          }
-          if (method === 'GET' && url === '/api/notifications') return (await tx.query(
-            `SELECT m.id,m.ticket_id,t.subject,m.created_at,(r.message_id IS NOT NULL) AS read
-             FROM messages m JOIN tickets t ON t.id=m.ticket_id
-             LEFT JOIN notification_reads r ON r.message_id=m.id
-             WHERE m.author_id<>actor() ORDER BY m.created_at DESC LIMIT 100`,
-          )).rows
           const notice = match(url, `/api/notifications/(${ticketId})/read`)
           if (method === 'POST' && notice) {
             if (account.agency && await monitoringReady(tx)) {

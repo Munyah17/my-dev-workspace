@@ -23,10 +23,13 @@ CMTyZKG3XEu5Ghl1LEnI3QmEKsqaCLv12BnVjbkSeZsMnevJPs1Ye6TjjJwdik5P
 o/bKiIz+Fq8=
 -----END CERTIFICATE-----`
 
-export function postgresConnectionOptions(connectionString) {
+export function postgresConnectionOptions(connectionString, { serverless = false } = {}) {
   const url = new URL(connectionString)
   const sharedPooler = /^aws-\d+-[a-z0-9-]+\.pooler\.supabase\.com$/.test(url.hostname)
-  if (!sharedPooler || url.searchParams.has('sslrootcert')) return { connectionString }
+  if (!sharedPooler) return { connectionString }
+  // Workspace requests use short transactions and do not need a sticky database session.
+  if (serverless && (!url.port || url.port === '5432')) url.port = '6543'
+  if (url.searchParams.has('sslrootcert')) return { connectionString: url.toString() }
 
   // node-postgres replaces the supplied TLS options when the URL contains sslmode.
   for (const option of ['ssl', 'sslmode', 'sslcert', 'sslkey', 'uselibpqcompat']) url.searchParams.delete(option)

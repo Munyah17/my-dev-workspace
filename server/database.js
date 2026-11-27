@@ -8,7 +8,14 @@ export async function openDatabase({ dataDir, url } = {}) {
     if (dataDir) await mkdir(dataDir, { recursive: true, mode: 0o700 })
     return PGlite.create(dataDir)
   }
-  const pool = new pg.Pool({ ...postgresConnectionOptions(url), max: 5, connectionTimeoutMillis: 8000 })
+  const serverless = Boolean(process.env.VERCEL)
+  const pool = new pg.Pool({
+    ...postgresConnectionOptions(url, { serverless }),
+    max: serverless ? 1 : 5,
+    idleTimeoutMillis: serverless ? 1000 : 10000,
+    connectionTimeoutMillis: 8000,
+  })
+  pool.on('error', error => console.error('Idle database connection failed:', error.code ?? error.name))
   return {
     async transaction(work) {
       const client = await pool.connect()
