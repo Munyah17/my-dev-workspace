@@ -1,6 +1,7 @@
 import { useRef,useState } from 'react'
 import { useRecord } from './useRecord.js'
 
+const hourlyUsd=new Intl.NumberFormat(undefined,{style:'currency',currency:'USD',currencyDisplay:'code',maximumFractionDigits:6})
 const usd=value=>new Intl.NumberFormat(undefined,{style:'currency',currency:'USD'}).format(Number(value)/100)
 
 export function Vps({api,revision,busy,action,platform}){
@@ -12,7 +13,7 @@ export function Vps({api,revision,busy,action,platform}){
     event.preventDefault()
     const form=event.currentTarget
     const fields=Object.fromEntries(new FormData(form))
-    const payload={workspace:value.workspace,label:fields.label,sshKey:fields.sshKey,minutes:Number(fields.minutes)}
+    const payload={workspace:value.workspace,label:fields.label,sshKey:fields.sshKey,minutes:Number(fields.minutes),hourlyPriceMicros:value.hourlyPriceMicros}
     const signature=JSON.stringify(payload)
     if(request.current?.signature!==signature) request.current={signature,id:crypto.randomUUID()}
     action(async()=>{
@@ -31,14 +32,15 @@ export function Vps({api,revision,busy,action,platform}){
           {value.workspaces.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}
         </select></label>}
         <p>Available balance <strong>{usd(value.balance)}</strong></p>
-        <p>VPS usage is billed in USD at the provider compute rate plus 30%. The wallet reserves the maximum price before creation.</p>
+        <p>Usage is billed in USD by the minute, rounded up to a whole cent. Your wallet reserves the maximum charge before the server starts.</p>
         <p>Wallet credits are posted by a platform admin after settlement. Online top-up is unavailable.</p>
-        {!value.enabled && <p>Cloud provisioning is currently unconfigured for this workspace.</p>}
+        {!value.enabled && <p>VPS pricing and rentals are unavailable for this workspace.</p>}
         {value.enabled && <form className="fields" onSubmit={reserve}>
           <label>Server name<input name="label" required maxLength="100" /></label>
           <label>Ed25519 SSH public key<textarea name="sshKey" required maxLength="120" /></label>
           <label>Maximum lifetime in minutes<input name="minutes" type="number" min="15" max="1440" required value={duration} onChange={event=>setDuration(event.target.value)} /></label>
-          <p>Maximum wallet hold <strong>{usd(Math.ceil(duration*value.rate*130/60000000))}</strong></p>
+          <p>Usage price <strong>{hourlyUsd.format(value.hourlyPriceMicros/1000000)} per hour</strong></p>
+          <p>Maximum wallet hold <strong>{duration>=15 && duration<=1440 && Number.isInteger(Number(duration)) ? usd(Math.ceil(duration*value.hourlyPriceMicros/600000)) : '—'}</strong></p>
           <p>One temporary Linux server per workspace. Ending a rental erases its files.</p>
           <button className="primary" disabled={busy}>Create VPS</button>
         </form>}

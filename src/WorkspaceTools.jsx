@@ -195,10 +195,10 @@ function StackDeploy({api,revision,action,busy,connection}){
   </section>
 }
 
-export function DeveloperTools({api,revision,action,busy}){
+export function DeveloperTools({section,api,revision,action,busy}){
   const catalog=useRecord(api,'developer-tools/connections',revision)
-  const work=useRecord(api,'developer-tools/links',revision)
-  const runs=useRecord(api,'developer-tools/runs',revision)
+  const work=useRecord(api,section==='models'?'developer-tools/links':null,revision)
+  const runs=useRecord(api,section==='models'?'developer-tools/runs':null,revision)
   const [provider,setProvider]=useState('Devin')
   const [adding,setAdding]=useState(false)
   const [useReference,setUseReference]=useState(false)
@@ -209,16 +209,17 @@ export function DeveloperTools({api,revision,action,busy}){
   const canEdit=scopes.some(scope=>scope.id===selected && scope.editable)
   const releaseConnection=catalog.value?.connections.find(item=>item.workspace_id===selected && item.provider==='GitHub Actions' && item.checked_at)
   const save=(path,payload)=>action(()=>api('developer-tools/'+path,payload))
+  const headings={integrations:'Integrations',models:'AI agents and models',deploy:'Deployments',operations:'Operations'}
   return <section id="configure-provider" className="panel">
-    <div className="thread-heading"><h2>AI agents and models</h2>
-      {canEdit && <button className="primary" aria-expanded={adding} onClick={()=>setAdding(value=>!value)}>{adding?'Close setup':'Add integration'}</button>}
+    <div className="thread-heading"><h2>{headings[section]}</h2>
+      {section==='integrations' && canEdit && <button className="primary" aria-expanded={adding} onClick={()=>setAdding(value=>!value)}>{adding?'Close setup':'Add integration'}</button>}
     </div>
-    <p className="empty">Connect provider credentials, attach agent runs to tasks, and keep model responses in MyDev.</p>
+    {section==='models' && <p className="empty">Attach agent runs to tasks and keep model responses in MyDev.</p>}
     {(catalog.error || work.error || runs.error) && <p className="error" role="alert">{catalog.error || work.error || runs.error}</p>}
     {scopes.length>1 && <label className="search app-picker">Workspace<select value={selected} onChange={event=>setWorkspace(event.target.value)}>
       {scopes.map(scope=><option key={scope.id} value={scope.id}>{scope.name}</option>)}
     </select></label>}
-    {canEdit && adding && <section className="monitor-details">
+    {section==='integrations' && canEdit && adding && <section className="monitor-details">
       <h3>Configure a provider</h3>
       <form className="fields" onSubmit={event=>{
         const element=event.currentTarget
@@ -247,11 +248,11 @@ export function DeveloperTools({api,revision,action,busy}){
         <button disabled={busy}>Save provider configuration</button>
       </form>
     </section>}
-    {[['AI providers',aiProviders],['Hosting and infrastructure',infrastructure],['Payments and error tracking',operationsProviders]].map(([group,names])=><section key={group} className="monitor-details">
+    {section==='integrations' && [['AI providers',aiProviders],['Hosting and infrastructure',infrastructure],['Payments and error tracking',operationsProviders]].map(([group,names])=><section key={group} className="monitor-details">
       <h3>{group}</h3>
-      {names.map(name=>{
+      <div className="settings-provider-grid">{names.map(name=>{
       const connection=catalog.value?.connections.find(item=>item.provider===name && item.workspace_id===selected)
-      return <article key={name} className="row">
+      return <article key={name} className="settings-provider">
         <div><strong>{name}</strong><small>{connection?.checked_at?'Connection verified':connection?'Credential test pending':'Not configured'}</small>
           {connection && <small>Scope {connection.verified_details?.name ?? connection.external_scope}{connection.verified_details?.status ? ' · '+connection.verified_details.status : ''}</small>}
           {connection?.credential_stored && <small>API credential saved</small>}
@@ -263,13 +264,15 @@ export function DeveloperTools({api,revision,action,busy}){
           <button disabled={busy} onClick={()=>save('connections/'+name+'/disconnect',{workspace:selected})}>Disconnect {name}</button>
         </div>}
       </article>
-      })}
+      })}</div>
     </section>)}
-    {canEdit && <StackSetup connection={releaseConnection} />}
-    {canEdit && releaseConnection && <StackDeploy api={api} revision={revision} action={action} busy={busy} connection={releaseConnection} />}
-    {canEdit && <AgencyIntegrations api={api} workspace={selected} action={action} busy={busy}
+    {section==='deploy' && canEdit && <StackSetup connection={releaseConnection} />}
+    {section==='deploy' && canEdit && releaseConnection && <StackDeploy api={api} revision={revision} action={action} busy={busy} connection={releaseConnection} />}
+    {section==='operations' && canEdit && <AgencyIntegrations api={api} workspace={selected} action={action} busy={busy}
       providers={catalog.value?.connections.filter(item=>item.workspace_id===selected && item.checked_at).map(item=>item.provider)??[]} key={selected} />}
-    {(work.value?.tasks.length??0)>0 && <>
+    {section==='deploy' && !releaseConnection && canEdit && <p><a href="#settings">Connect GitHub Actions to run a release.</a></p>}
+    {section==='models' && work.value && !work.value.tasks.length && <p className="empty">Create a task to link agent work or run a model prompt.</p>}
+    {section==='models' && (work.value?.tasks.length??0)>0 && <>
       <details className="monitor-details"><summary>Link agent work to a task</summary>
         <form className="fields" onSubmit={event=>save('links',form(event))}>
           <TaskPicker tasks={work.value.tasks} />
@@ -288,7 +291,7 @@ export function DeveloperTools({api,revision,action,busy}){
         </form>
       </details>
     </>}
-    {work.value?.links.map(link=><article className="row" key={link.id}>
+    {section==='models' && work.value?.links.map(link=><article className="row" key={link.id}>
       <div><strong>{link.provider} · {link.title}</strong><small><a href={'#tasks/'+link.task_id}>{link.task_title}</a>{statuses[link.id]?' · '+statuses[link.id]:''}</small>
         <a href={link.url} target="_blank" rel="noreferrer">Open provider work</a></div>
       <div className="monitor-actions">
@@ -299,7 +302,7 @@ export function DeveloperTools({api,revision,action,busy}){
         <button disabled={busy} onClick={()=>save('links/'+link.id+'/remove',{})}>Remove</button>
       </div>
     </article>)}
-    {runs.value?.map(run=><details className="monitor-details" key={run.id}><summary>{run.provider || 'Claude'} · {run.task_title}</summary>
+    {section==='models' && runs.value?.map(run=><details className="monitor-details" key={run.id}><summary>{run.provider || 'Claude'} · {run.task_title}</summary>
       <p><strong>Prompt</strong></p><pre className="maintenance-diff">{run.prompt}</pre>
       <p><strong>Response</strong></p><pre className="maintenance-diff">{run.response}</pre>
     </details>)}
@@ -315,6 +318,7 @@ function TaskPicker({tasks}){
 export function Accounting({api,revision,action,busy,recordId}){
   const [workspace,setWorkspace]=useState('')
   const [section,setSection]=useState('documents')
+  const [documentSearch,setDocumentSearch]=useState('')
   const setup=useRecord(api,'erp/setup'+(workspace?'?workspace='+encodeURIComponent(workspace):''),revision)
   const chosen=workspace || setup.value?.scopes[0]?.id
   const suffix=chosen?'?workspace='+encodeURIComponent(chosen):''
@@ -330,24 +334,31 @@ export function Accounting({api,revision,action,busy,recordId}){
   if(!chosen) return <p>Opening Accounts &amp; ERP…</p>
   if(recordId) return document.value?<PrintableDocument document={document.value} />:<p>Opening document…</p>
   return <section className="panel">
-    <div className="monitor-actions">{Object.entries(sectionLinks).map(([key,label])=><a className="badge" href={'#'+key} key={key}>{label}</a>)}</div>
+    <details className="monitor-details"><summary>Related finance tools</summary>
+      <div className="monitor-actions">{Object.entries(sectionLinks).map(([key,label])=><a href={'#'+key} key={key}>{label}</a>)}</div>
+    </details>
     {setup.value.scopes.length>1 && <label className="search app-picker">Workspace<select value={chosen} onChange={event=>setWorkspace(event.target.value)}>
       {setup.value.scopes.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}
     </select></label>}
-    <div className="monitor-actions" aria-label="Accounts and ERP tools">
+    <nav className="settings-nav" aria-label="Accounts and ERP tools">
       {[['documents','Document generators'],['types','Billing service types'],['staff','HR and payroll']].map(([key,label])=><button key={key}
         aria-pressed={section===key} onClick={()=>setSection(key)}>{label}</button>)}
-    </div>
+    </nav>
     {section==='documents' && <>
       <div className="monitor-actions"><a href="#billing">Quotation generator</a><a href="#billing">Invoice generator</a></div>
-      <DocumentForm setup={setup.value} save={save} busy={busy} />
-      {documents.value?.map(item=><a href={'#erp/'+item.id} className="row ticket-link" key={item.id}>
+      <details className="monitor-details"><summary>New ERP document</summary>
+        <DocumentForm setup={setup.value} save={save} busy={busy} />
+      </details>
+      <label className="search">Find documents<input type="search" value={documentSearch} onChange={event=>setDocumentSearch(event.target.value)} placeholder="Title, type or recipient" /></label>
+      {documents.value?.filter(item=>[item.title,kinds[item.kind],item.recipient,item.number].join(' ').toLowerCase()
+        .includes(documentSearch.trim().toLowerCase())).map(item=><a href={'#erp/'+item.id} className="row ticket-link" key={item.id}>
         <div><strong>{item.title}</strong><small>{kinds[item.kind]} {item.number} · {item.recipient} · {date(item.issued_on)}</small></div>
       </a>)}
     </>}
     {section==='types' && <>
       <h2>Billing service types</h2>
       <p className="empty">Create reusable defaults for hosting, renewals, tracking, subscriptions, and additional services.</p>
+      <details className="monitor-details"><summary>Add billing service type</summary>
       <form className="fields" onSubmit={event=>{const values=form(event);save('service-types',{
         ...values,interval:Number(values.interval),reminder:Number(values.reminder),
       })}}>
@@ -358,6 +369,7 @@ export function Accounting({api,revision,action,busy,recordId}){
         <label>Reminder days<input name="reminder" type="number" min="0" max="365" defaultValue="7" required /></label>
         <button disabled={busy}>Save billing service type</button>
       </form>
+      </details>
       {types.value?.custom.map(type=><div className="row" key={type.id}><strong>{type.name}</strong>
         <small>{directions[type.direction]} · Every {type.interval_months} month(s) · {type.reminder_days} day reminder</small></div>)}
     </>}

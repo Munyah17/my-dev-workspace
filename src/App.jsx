@@ -9,6 +9,7 @@ import { Apps, Incident, NeedsAttention } from './Monitoring.jsx'
 import { DueTasks, Integrations, ReleaseAttention, ReleaseBoard, TaskBoard, TicketMaintenance } from './Maintenance.jsx'
 
 const states = ['New', 'In progress', 'Awaiting agency', 'Awaiting client', 'Resolved', 'Reopened']
+const settingsSections={integrations:'Integrations',models:'AI work',deploy:'Deployments',operations:'Operations',projects:'Project connections'}
 const sections = { today: 'Today', inbox: 'Client inbox', maintenance: 'Private maintenance', apps: 'Apps', incident: 'Incident', tasks: 'Tasks', settings: 'Workspace settings', releases: 'Releases', crm: 'CRM', billing: 'Billing', orders: 'Orders', inventory: 'Inventory', transactions: 'Transactions', erp: 'Accounts & ERP', vps: 'Cloud VPS', platform: 'Platform admin' }
 const date = value => new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(value))
 
@@ -85,7 +86,7 @@ export default function App() {
   }, [theme])
 
   useEffect(() => {
-    const change = () => { setRoute(currentRoute()); setError('') }
+    const change = () => { setRoute(currentRoute()); setError(''); window.scrollTo(0,0) }
     window.addEventListener('hashchange', change)
     api('config').then(result => setDemo(result.demo)).catch(() => {})
     api('me').then(setUser).catch(problem => { setUser(null); if (problem.status !== 401) setError(problem.message) })
@@ -209,6 +210,7 @@ export default function App() {
   const visibleTicket = ticket?.id === route.id ? ticket : null
   const unread = notifications.filter(item => !item.read)
   const displayedTickets = query.trim() ? searchResults ?? [] : tickets
+  const settingsSection=Object.hasOwn(settingsSections,route.id)?route.id:'integrations'
   return <div className="workspace">
     <aside className="sidebar">
       <Brand compact />
@@ -265,8 +267,14 @@ export default function App() {
         : section === 'platform' ? <PlatformAdmin api={api} revision={revision} action={action} busy={busy} />
         : section === 'erp' ? <Accounting api={api} revision={revision} action={action} busy={busy} recordId={route.id} />
         : section === 'settings' ? <>
-          <DeveloperTools api={api} revision={revision} action={action} busy={busy} />
-          <Integrations api={api} revision={revision} action={action} busy={busy} />
+          <nav className="settings-nav" aria-label="Settings sections">
+            {Object.entries(settingsSections).map(([key,label])=><a key={key}
+              href={key==='integrations'?'#settings':'#settings/'+key} aria-current={settingsSection===key?'page':undefined}>{label}</a>)}
+          </nav>
+          {settingsSection==='projects'
+            ? <Integrations api={api} revision={revision} action={action} busy={busy} />
+            : <DeveloperTools section={settingsSection} api={api} revision={revision} action={action} busy={busy} />}
+
         </>
         : section === 'releases' ? <ReleaseBoard api={api} revision={revision} id={route.id} action={action} busy={busy} />
         : section === 'incident' ? route.id
