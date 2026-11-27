@@ -152,3 +152,11 @@ Accounts & ERP groups CRM, quotations, invoices, orders, inventory, transactions
 The platform portal has a separate database-only administrator grant in `workspace_private.platform_administrators`. An agency owner does not inherit it. The portal shows workspace counts, plan, and lifecycle metadata with audit history. It does not charge tenants or enforce a suspension.
 
 Apply `npm run workspace-tools:migrate` after the maintenance and billing schemas in a new environment.
+
+### Hosting, collections, and Sentry
+
+Workspace owners can connect WHM and cPanel with the hosting account API token and a public hostname/username. MyDev reads WHM accounts on port 2087 and cPanel domains on port 2083. The hosting connection requires valid TLS and a public DNS address. Existing project release targets and deployment approvals are managed separately.
+
+Collections reporting reads captured live Stripe charges using a restricted key and its matching Stripe account ID. The first version supports one Stripe account per workspace. App and business filtering matches the `app` metadata on the charge. Refunds are attributed to the original charge date. Paynow entries are manually recorded from settlement records using the unique provider reference. Collections are separated by currency and do not change invoice balances. Provider fees, payouts, and automatic Paynow sync are outside this report.
+
+A Sentry project connection reads unresolved issues on sentry.io. Use the organization/project slug and a read token with project and event access. Opening an issue task assigns it to the workspace owner who created it. The same project issue opens the existing task on retry.

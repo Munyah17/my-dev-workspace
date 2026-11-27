@@ -1,5 +1,5 @@
 import { sealProviderKey } from './provider-secrets.js'
-import { checkDeveloperConnection,developerStatus,providerSecretName,promptProviders,runDeveloperModel,validateProviderScope } from './developer-providers.js'
+import { checkDeveloperConnection,developerStatus,hostingResources,sentryIssues,stripeCollections,providerSecretName,promptProviders,runDeveloperModel,validateProviderScope } from './developer-providers.js'
 import { currency,date,integer,text } from './billing.js'
 
 const fail=(status,message)=>Object.assign(Error(message),{status})
@@ -75,7 +75,7 @@ export async function workspaceToolsRoute(tx,{method,pathname,body,account,searc
         return {environmentKey:providerSecretName(connection),credentialStored:Boolean(body.apiKey)}
       }
       if(method==='POST' && key && operation==='check'){
-        const [connection]=await query(connectionSql,[text(body.workspace,120),key])
+        const [connection]=await query(connectionSql+' FOR UPDATE OF c',[text(body.workspace,120),key])
         if(!connection || !(await query('SELECT developer_workspace_owner($1) AS allowed',[connection.workspace_id]))[0].allowed) throw fail(404,'Connection not found.')
         const details=await checkDeveloperConnection(connection)
         await query('UPDATE developer_connections SET checked_at=now(),verified_details=$3 WHERE workspace_id=$1 AND provider=$2',[connection.workspace_id,key,details])
@@ -87,6 +87,64 @@ export async function workspaceToolsRoute(tx,{method,pathname,body,account,searc
         await query('DELETE FROM developer_connections WHERE workspace_id=$1 AND provider=$2',[workspace,key])
         return {saved:true}
       }
+    }
+    if(['collections','hosting','sentry'].includes(resource)){
+      const workspace=text(body?.workspace??search.get('workspace'),120)
+      if(!(await query('SELECT developer_workspace_owner($1) AS allowed',[workspace]))[0].allowed)
+        throw fail(404,'Workspace not found.')
+      const verified=async provider=>{
+        const [connection]=await query('SELECT c.*,s.ciphertext FROM developer_connections c LEFT JOIN developer_connection_secrets s ON s.workspace_id=c.workspace_id AND s.provider=c.provider WHERE c.workspace_id=$1 AND c.provider=$2 AND c.checked_at IS NOT NULL FOR SHARE OF c',[workspace,provider])
+        return connection
+      }
+      if(resource==='hosting' && method==='GET' && !operation && ['WHM','cPanel'].includes(key)){
+        const connection=await verified(key)
+        if(!connection) throw fail(409,'Test the hosting connection in Workspace settings first.')
+        return hostingResources(connection)
+      }
+      if(resource==='sentry' && !operation){
+        const connection=await verified('Sentry')
+        if(!connection) throw fail(409,'Test the Sentry connection in Workspace settings first.')
+        if(method==='GET' && !key) return sentryIssues(connection)
+        if(method==='POST' && key && /^\d{1,32}$/.test(key)){
+          await query('SELECT pg_advisory_xact_lock(hashtext($1),hashtext($2))',[workspace,'sentry:'+connection.external_scope+':'+key])
+          const [existing]=await query('SELECT task_id AS id FROM sentry_tasks WHERE workspace_id=$1 AND external_scope=$2 AND issue_id=$3',[workspace,connection.external_scope,key])
+          if(existing) return existing
+          const issue=(await sentryIssues(connection)).find(issue=>issue.id===key)
+          if(!issue) throw fail(404,'Issue is no longer in the current Sentry list.')
+          const [task]=await query('INSERT INTO maintenance_tasks(workspace_id,title,assigned_to,created_by) VALUES($1,$2,$3,$3) RETURNING id',[
+            workspace,('Sentry '+issue.key+' · '+issue.title).slice(0,160),account.id,
+          ])
+          await query('INSERT INTO sentry_tasks VALUES ($1,$2,$3,$4)',[workspace,connection.external_scope,key,task.id])
+          return task
+        }
+      }
+      if(resource==='collections' && !operation){
+        if(method==='POST' && key==='paynow'){
+          const reference=text(body.reference,120)
+          const values=[workspace,reference,date(body.date),currency(body.currency),integer(body.gross,1,1000000000000),integer(body.refund??0,0,body.gross),text(body.app,120,false)]
+          if(!['USD','ZWG','ZWL','ZAR'].includes(values[3])) throw fail(400,'Choose a supported Paynow currency.')
+          const [inserted]=await query('INSERT INTO paynow_collections VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING RETURNING reference',[...values,account.id])
+          if(!inserted){
+            const [same]=await query('SELECT reference FROM paynow_collections WHERE workspace_id=$1 AND reference=$2 AND received_on=$3 AND currency=$4 AND gross=$5 AND refund=$6 AND app=$7',values)
+            if(!same) throw fail(409,'That Paynow reference already has different details.')
+          }
+          return {reference}
+        }
+        if(method==='GET' && !key){
+          const start=date(search.get('start')),end=date(search.get('end'))
+          const span=Date.parse(end)-Date.parse(start)
+          if(span<0 || span>366*86400000) throw fail(400,'Choose a date range of up to one year.')
+          const app=text(search.get('app'),120,false)
+          const filter=search.get('provider')??'all'
+          if(!['all','stripe','paynow'].includes(filter)) throw fail(400,'Choose a collections provider.')
+          const stripe=filter==='paynow'?null:await verified('Stripe')
+          const stripeTotals=stripe?await stripeCollections(stripe,Date.parse(start)/1000,Date.parse(end)/1000+86400,app):null
+          const paynow=filter==='stripe'?[]:await query(`SELECT lower(currency) AS currency,sum(gross) AS gross,sum(refund) AS refund
+            FROM paynow_collections WHERE workspace_id=$1 AND received_on BETWEEN $2 AND $3 AND ($4='' OR app=$4) GROUP BY currency`,[workspace,start,end,app])
+          return {stripe:stripeTotals,paynow}
+        }
+      }
+      throw fail(404,'Integration operation not found.')
     }
     if(resource==='runs'){
       if(method==='GET' && !key) return query(`SELECT r.*,t.title AS task_title FROM developer_model_runs r

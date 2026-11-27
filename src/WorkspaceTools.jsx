@@ -2,14 +2,16 @@ import { useState } from 'react'
 import { useRecord } from './useRecord.js'
 
 const aiProviders=['Devin','Cursor','Claude','Codex','ChatGPT']
-const infrastructure=['Vercel','Supabase','Cloudflare','Firebase','Netlify']
+const infrastructure=['Vercel','Supabase','Cloudflare','Firebase','Netlify','WHM','cPanel']
+const operationsProviders=['Stripe','Sentry']
 const promptProviders=['Claude','Codex','ChatGPT']
 const scopeLabels={
   Devin:'Devin organization ID',Claude:'Claude model ID',Codex:'OpenAI Codex model ID',ChatGPT:'OpenAI GPT model ID',
   Vercel:'Vercel project ID or project ID/team ID',Supabase:'Supabase project reference',Cloudflare:'Cloudflare zone ID',
   Firebase:'Firebase project ID',Netlify:'Netlify site ID',
+  WHM:'WHM hostname/username',cPanel:'cPanel hostname/username',Stripe:'Stripe account ID',Sentry:'Sentry organization/project slug',
 }
-const providers=[...aiProviders,...infrastructure]
+const providers=[...aiProviders,...infrastructure,...operationsProviders]
 const kinds={'credit-note':'Credit note','debit-note':'Debit note',notice:'Notice',claim:'Claim',proposal:'Proposal',boq:'Bill of Quantities',bom:'Bill of Materials'}
 const directions={collection:'Collect from client',supplier:'Pay supplier',domain:'Renew domain'}
 const today=()=>new Date().toISOString().slice(0,10)
@@ -18,6 +20,85 @@ const minor=value=>Math.round(Number(value)*100)
 const money=(amount,code)=>code+' '+(Number(amount)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})
 const form=event=>{event.preventDefault();return Object.fromEntries(new FormData(event.currentTarget))}
 const sectionLinks={crm:'CRM',billing:'Quotes and invoices',orders:'Orders',inventory:'Inventory',transactions:'Transactions'}
+
+function AgencyIntegrations({api,workspace,action,busy,providers}){
+  const [report,setReport]=useState(null)
+  const [hosting,setHosting]=useState(null)
+  const [issues,setIssues]=useState(null)
+  const scope=new URLSearchParams({workspace}).toString()
+  const rows=new Map()
+  for(const [code,value] of Object.entries(report?.stripe??{})) rows.set(code,{...value})
+  for(const item of report?.paynow??[]){
+    const row=rows.get(item.currency)??{gross:0,refund:0}
+    rows.set(item.currency,{gross:row.gross+Number(item.gross),refund:row.refund+Number(item.refund)})
+  }
+  const amount=(value,code)=>{
+    const format=new Intl.NumberFormat(undefined,{style:'currency',currency:code,currencyDisplay:'code'})
+    const digits=['isk','ugx'].includes(code)?2:format.resolvedOptions().maximumFractionDigits
+    return format.format(value/10**digits)
+  }
+  return <section className="monitor-details">
+    <h3>Collections reporting</h3>
+    <p>Shows captured payments less recorded refunds, grouped by currency. Refunds follow the original payment date. Fees and payouts are tracked separately by your provider.</p>
+    <form className="fields" onSubmit={event=>{
+      const values=form(event)
+      setReport(null)
+      action(async()=>setReport(await api('developer-tools/collections?'+new URLSearchParams({workspace,...values}))))
+    }}>
+      <label>From<input type="date" name="start" required defaultValue={today().slice(0,7)+'-01'} /></label>
+      <label>Through<input type="date" name="end" required defaultValue={today()} /></label>
+      <label>Payment provider<select name="provider"><option value="all">All providers</option><option value="stripe">Stripe</option><option value="paynow">Paynow</option></select></label>
+      <label>App or business tag<input name="app" maxLength="120" /></label>
+      <small>App tags match Stripe charge metadata named app or the tag entered with a Paynow record.</small>
+      <button disabled={busy}>View collections</button>
+    </form>
+    {report && <div>
+      {report.stripe===null && <p>Stripe data is excluded. Check the provider filter and connection status.</p>}
+      {!rows.size && <p>No matching collections.</p>}
+      {[...rows].map(([code,row])=><p key={code}>
+        {amount(row.gross,code)} captured · {amount(row.refund,code)} refunded · {amount(row.gross-row.refund,code)} after refunds
+      </p>)}
+    </div>}
+    <details className="monitor-details"><summary>Record a settled Paynow collection</summary>
+      <form className="fields" onSubmit={event=>{
+        const element=event.currentTarget
+        const values=form(event)
+        action(async()=>{
+          await api('developer-tools/collections/paynow',{...values,workspace,gross:minor(values.gross),refund:minor(values.refund)})
+          element.reset()
+          setReport(null)
+        })
+      }}>
+        <label>Paynow reference<input name="reference" maxLength="120" required /></label>
+        <label>Payment date<input type="date" name="date" required defaultValue={today()} /></label>
+        <label>Currency<select name="currency">{['USD','ZWG','ZWL','ZAR'].map(code=><option key={code}>{code}</option>)}</select></label>
+        <label>Gross collected<input type="number" min=".01" step=".01" name="gross" required /></label>
+        <label>Refunds already recorded<input type="number" min="0" step=".01" name="refund" /></label>
+        <label>App or business tag<input name="app" maxLength="120" /></label>
+        <button disabled={busy}>Save Paynow collection</button>
+      </form>
+    </details>
+    {providers.some(provider=>['WHM','cPanel'].includes(provider)) && <div className="monitor-details">
+      <h3>Hosting inventory</h3>
+      {['WHM','cPanel'].filter(provider=>providers.includes(provider)).map(provider=><button key={provider} disabled={busy}
+        onClick={()=>{setHosting(null);action(async()=>setHosting({provider,rows:await api('developer-tools/hosting/'+provider+'?'+scope)}))}}>View {provider} accounts or domains</button>)}
+      {hosting && providers.includes(hosting.provider) && (hosting.rows.length ? hosting.rows.map(item=><div className="row" key={item.domain}>
+        <strong>{item.domain}</strong><small>{item.user}{item.suspended?' · Suspended':''}</small>
+      </div>) : <p>No accounts or domains returned.</p>)}
+    </div>}
+    {providers.includes('Sentry') && <div className="monitor-details">
+      <h3>Sentry issues</h3>
+      <button disabled={busy} onClick={()=>{setIssues(null);action(async()=>setIssues(await api('developer-tools/sentry?'+scope)))}}>Load unresolved issues</button>
+      {issues?.length===0 && <p>No unresolved issues returned.</p>}
+      {issues?.map(issue=><div className="row" key={issue.id}><div><strong>{issue.key} · {issue.title}</strong><small>{date(issue.lastSeen)}</small></div>
+        <button disabled={busy} onClick={()=>action(async()=>{
+          const task=await api('developer-tools/sentry/'+issue.id,{workspace})
+          window.location.hash='tasks/'+task.id
+        })}>Open or create task</button>
+      </div>)}
+    </div>}
+  </section>
+}
 
 export function DeveloperTools({api,revision,action,busy}){
   const catalog=useRecord(api,'developer-tools/connections',revision)
@@ -55,17 +136,20 @@ export function DeveloperTools({api,revision,action,busy}){
         <label>Provider<select value={provider} onChange={event=>setProvider(event.target.value)}>{providers.map(name=><option key={name}>{name}</option>)}</select></label>
         {useReference
           ? <label>Server credential reference<input name="secretRef" pattern="[A-Z][A-Z0-9_]{0,40}" defaultValue="PRIMARY" required /></label>
-          : <label>{['Firebase','Supabase','Netlify','Vercel','Cloudflare'].includes(provider)?'API access token':'API key'}<input
+          : <label>{['Firebase','Supabase','Netlify','Vercel','Cloudflare','WHM','cPanel','Sentry'].includes(provider)?'API access token':'API key'}<input
             type="password" name="apiKey" autoComplete="off" required maxLength="2048" /></label>}
         <label className="checkbox"><input type="checkbox" checked={useReference} onChange={event=>setUseReference(event.target.checked)} />Use a server environment variable instead</label>
         {!useReference && provider==='Firebase' && <small>Use a Google OAuth access token with access to this project.</small>}
         {!useReference && provider==='Supabase' && <small>Use a personal access token from your Supabase account settings.</small>}
         {!useReference && ['Codex','ChatGPT'].includes(provider) && <small>Use an OpenAI API key and a model ID available to that API project.</small>}
+        {!useReference && provider==='Stripe' && <small>Use a live restricted key with account and charges read access.</small>}
+        {!useReference && provider==='Sentry' && <small>Use a Sentry token with project and event read access.</small>}
+        {!useReference && ['WHM','cPanel'].includes(provider) && <small>Use the hosting account’s API token and enter the server hostname followed by /username.</small>}
         {provider!=='Cursor' && <label>{scopeLabels[provider]}<input key={provider} name="scope" required /></label>}
         <button disabled={busy}>Save provider configuration</button>
       </form>
     </section>}
-    {[['AI providers',aiProviders],['Hosting and infrastructure',infrastructure]].map(([group,names])=><section key={group} className="monitor-details">
+    {[['AI providers',aiProviders],['Hosting and infrastructure',infrastructure],['Payments and error tracking',operationsProviders]].map(([group,names])=><section key={group} className="monitor-details">
       <h3>{group}</h3>
       {names.map(name=>{
       const connection=catalog.value?.connections.find(item=>item.provider===name && item.workspace_id===selected)
@@ -83,6 +167,8 @@ export function DeveloperTools({api,revision,action,busy}){
       </article>
       })}
     </section>)}
+    {canEdit && <AgencyIntegrations api={api} workspace={selected} action={action} busy={busy}
+      providers={catalog.value?.connections.filter(item=>item.workspace_id===selected && item.checked_at).map(item=>item.provider)??[]} key={selected} />}
     {(work.value?.tasks.length??0)>0 && <>
       <details className="monitor-details"><summary>Link agent work to a task</summary>
         <form className="fields" onSubmit={event=>save('links',form(event))}>

@@ -2,14 +2,16 @@ import { lookup } from 'node:dns/promises'
 import { request } from 'node:https'
 import ipaddr from 'ipaddr.js'
 
-export function monitorUrl(value) {
+function publicUrl(value, allowedPort='') {
   if (typeof value !== 'string' || value.length > 2048) throw new Error('Invalid monitor URL.')
   const url = new URL(value)
-  if (url.protocol !== 'https:' || url.username || url.password || url.port || url.hash || !url.hostname.includes('.')) {
+  if (url.protocol !== 'https:' || url.username || url.password || url.port !== allowedPort || url.hash || !url.hostname.includes('.')) {
     throw new Error('Use a public HTTPS URL on port 443 with no credentials or fragment.')
   }
   return url
 }
+
+export const monitorUrl = value => publicUrl(value)
 
 export async function publicAddress(hostname, resolve = lookup) {
   const addresses = await resolve(hostname, { all: true })
@@ -35,8 +37,9 @@ async function resolveForRequest(hostname, signal) {
   }
 }
 
-export async function httpsObservation(input, { signal, phrase, includeBody = false, headers, followRedirects = true } = {}) {
-  let url = monitorUrl(input)
+export async function httpsObservation(input, { signal, phrase, includeBody = false, headers, followRedirects = true, hostingPort } = {}) {
+  if (hostingPort && (!['2083','2087'].includes(hostingPort) || followRedirects)) throw new Error('Invalid hosting request.')
+  let url = publicUrl(input, hostingPort)
   for (let redirects = 0; redirects <= 5; redirects++) {
     signal?.throwIfAborted()
     const { address, family } = await resolveForRequest(url.hostname, signal)

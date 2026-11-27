@@ -52,6 +52,12 @@ export async function migrateBillingEditor(tx) {
   if (!rows[0].installed) await tx.exec(await readFile(new URL('./billing-editor.sql', import.meta.url), 'utf8'))
 }
 
+export async function migrateAgencyIntegrations(tx) {
+  await tx.query('SELECT pg_advisory_xact_lock(231042010)')
+  const { rows } = await tx.query("SELECT to_regclass('workspace_private.paynow_collections') IS NOT NULL AS installed")
+  if (!rows[0].installed) await tx.exec(await readFile(new URL('./agency-integrations.sql', import.meta.url), 'utf8'))
+}
+
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
   const url = process.env.SUPABASE_ADMIN_DATABASE_URL
   if (!url) throw new Error('Set SUPABASE_ADMIN_DATABASE_URL for migrations.')
@@ -61,7 +67,8 @@ if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) 
       if (process.argv.includes('--workspace-tools')) {
         await migrateWorkspaceTools(tx)
         await migrateIntegrationCatalog(tx)
-        return migrateIntegrationCredentials(tx)
+        await migrateIntegrationCredentials(tx)
+        return migrateAgencyIntegrations(tx)
       }
       if (process.argv.includes('--operations')) return migrateOperations(tx)
       if (process.argv.includes('--billing')) {

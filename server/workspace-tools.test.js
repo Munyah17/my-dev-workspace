@@ -109,6 +109,36 @@ test('workspace tools preserve document totals, payroll scope, provider boundari
     await tools('connections/Cloudflare/check',{workspace})
     await tools('connections/Cloudflare/disconnect',{workspace})
     assert.equal((await scopedTransaction(db,tx=>tx.query('SELECT * FROM developer_connection_secrets'))).rows.length,0)
+    const reportPath='collections?workspace=demo&start=2026-11-01&end=2026-11-30&app=AeroTrack'
+    const paynow={workspace,reference:'fixture-payment',date:day,gross:2100,refund:100,currency:'USD',app:'AeroTrack'}
+    await tools('collections/paynow',paynow)
+    await tools('collections/paynow',paynow)
+    await assert.rejects(tools('collections/paynow',{...paynow,gross:2200}),{status:409})
+    await assert.rejects(tools(reportPath,undefined,'gents'),{status:404})
+    const stripeKey='rk_live_fixture-collections'
+    await tools('connections',{workspace,provider:'Stripe',scope:'acct_fixture',apiKey:stripeKey})
+    globalThis.fetch=async(url,options)=>{
+      assert.equal(options.headers.Authorization,'Bearer '+stripeKey)
+      const path=new URL(url)
+      if(path.pathname==='/v1/account') return Response.json({id:'acct_fixture'})
+      const charge={id:'ch_1',status:'succeeded',paid:true,captured:true,currency:'usd',amount_captured:3500,amount_refunded:500,metadata:{app:'AeroTrack'}}
+      return Response.json({data:path.searchParams.has('starting_after')?[{...charge,metadata:{app:'Other'}}]:[charge],
+        has_more:path.searchParams.get('limit')==='100'&&!path.searchParams.has('starting_after')})
+    }
+    await tools('connections/Stripe/check',{workspace})
+    const report=await tools(reportPath)
+    assert.deepEqual(report.stripe,{usd:{gross:3500,refund:500}})
+    assert.equal(Number(report.paynow[0].gross),2100)
+    await tools('connections',{workspace,provider:'Sentry',scope:'fixture/project',apiKey:'fixture-sentry-token'})
+    globalThis.fetch=async url=>{
+      assert.equal(new URL(url).pathname,'/api/0/projects/fixture/project/issues/')
+      return Response.json([{id:'12345',shortId:'PROJECT-1',title:'Persistence error'}])
+    }
+    await tools('connections/Sentry/check',{workspace})
+    assert.equal((await tools('sentry?workspace=demo'))[0].id,'12345')
+    const sentryTask=await tools('sentry/12345',{workspace})
+    assert.deepEqual(await tools('sentry/12345',{workspace}),sentryTask)
+    assert.equal((await call('maintenance','tasks/'+sentryTask.id)).title,'Sentry PROJECT-1 · Persistence error')
     const link=await tools('links',{task:task.id,provider:'Cursor',title:'Review agent',url:'https://cursor.com/agents/bc-fixture'})
     assert.equal((await tools('links')).links[0].id,link.id)
     assert.deepEqual(await call('platform','access'),{allowed:false})
