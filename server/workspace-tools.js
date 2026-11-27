@@ -1,5 +1,5 @@
 import { sealProviderKey } from './provider-secrets.js'
-import { checkDeveloperConnection,dispatchStack,developerStatus,hostingResources,sentryIssues,stripeCollections,providerSecretName,promptProviders,runDeveloperModel,validateProviderScope } from './developer-providers.js'
+import { checkDeveloperConnection,dispatchStack,developerStatus,hostingResources,sentryIssues,stackRunStatus,stripeCollections,providerSecretName,promptProviders,runDeveloperModel,validateProviderScope } from './developer-providers.js'
 import { currency,date,integer,text } from './billing.js'
 
 const fail=(status,message)=>Object.assign(Error(message),{status})
@@ -89,13 +89,20 @@ export async function workspaceToolsRoute(tx,{method,pathname,body,account,searc
         return {saved:true}
       }
     }
-    if(resource==='stack-deploy' && !key && !operation){
+    if(resource==='stack-deploy' && !operation){
       const workspace=text(body?.workspace??search.get('workspace'),120)
       if(!(await query('SELECT developer_workspace_owner($1) AS allowed',[workspace]))[0].allowed)
         throw fail(404,'Workspace not found.')
+      if(method==='GET' && key){
+        const [entry]=await query('SELECT scope FROM stack_dispatches WHERE workspace_id=$1 AND request_id=$2',[workspace,id(key)])
+        const [connection]=await query(connectionSql+' AND c.checked_at IS NOT NULL',[workspace,'GitHub Actions'])
+        if(!entry) throw fail(404,'Stack release not found.')
+        if(!connection || entry.scope!==connection.external_scope) throw fail(409,'Reconnect the original release scope to inspect this run.')
+        return stackRunStatus(connection,key)
+      }
       if(method==='GET') return query(`SELECT request_id,scope,revision,state,created_at FROM stack_dispatches
         WHERE workspace_id=$1 ORDER BY created_at DESC LIMIT 20`,[workspace])
-      if(method==='POST'){
+      if(method==='POST' && !key){
         const revision=body.revision
         if(typeof revision!=='string' || !/^[0-9a-f]{40}$/.test(revision)) throw fail(400,'Enter a full Git commit SHA.')
         const requestId=id(body.requestId)

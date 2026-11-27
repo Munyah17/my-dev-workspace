@@ -5,7 +5,7 @@ import { billingRoute } from './billing.js'
 import { createHash, randomBytes, scryptSync } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { openDatabase, scopedTransaction } from './database.js'
-import { migrateAgencyIntegrations, migrateBilling, migrateBillingEditor, migrateIntegrationCatalog, migrateIntegrationCredentials, migrateMaintenance, migrateMonitoring, migrateOperations, migrateStackDeploy, migrateVps, migrateWorkspaceTools } from './migrate.js'
+import { migrateAgencyIntegrations, migrateBilling, migrateBillingEditor, migrateGrok, migrateIntegrationCatalog, migrateIntegrationCredentials, migrateMaintenance, migrateMonitoring, migrateOperations, migrateStackDeploy, migrateVps, migrateWorkspaceTools } from './migrate.js'
 import { monitoringReady, monitoringRoute } from './monitoring.js'
 import { maintenanceRoute } from './maintenance.js'
 
@@ -45,6 +45,7 @@ export async function initialize(db, demo) {
     await migrateAgencyIntegrations(tx)
     await migrateVps(tx)
     await migrateStackDeploy(tx)
+    await migrateGrok(tx)
     if (!demo) return
     const seeded = await tx.query("SELECT id FROM workspaces WHERE id='demo'")
     if (seeded.rows.length) return

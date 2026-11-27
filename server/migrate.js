@@ -70,13 +70,25 @@ export async function migrateStackDeploy(tx) {
   if(!rows[0].installed) await tx.exec(await readFile(new URL('./stack-deploy.sql',import.meta.url),'utf8'))
 }
 
+export async function migrateGrok(tx) {
+  await tx.query('SELECT pg_advisory_xact_lock(231042013)')
+  const {rows}=await tx.query(`SELECT EXISTS(SELECT 1 FROM pg_constraint c JOIN pg_class t ON t.oid=c.conrelid
+    JOIN pg_namespace n ON n.oid=t.relnamespace WHERE n.nspname='workspace_private'
+    AND t.relname='developer_connections' AND c.conname='developer_connections_provider_check'
+    AND pg_get_constraintdef(c.oid) LIKE '%Grok%') AS installed`)
+  if(!rows[0].installed) await tx.exec(await readFile(new URL('./grok.sql',import.meta.url),'utf8'))
+}
+
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
   const url = process.env.SUPABASE_ADMIN_DATABASE_URL
   if (!url) throw new Error('Set SUPABASE_ADMIN_DATABASE_URL for migrations.')
   const db = await openDatabase({ url })
   try {
     await scopedTransaction(db, async tx => {
-      if (process.argv.includes('--stack-deploy')) return migrateStackDeploy(tx)
+      if (process.argv.includes('--stack-deploy')) {
+        await migrateStackDeploy(tx)
+        return migrateGrok(tx)
+      }
       if (process.argv.includes('--vps')) return migrateVps(tx)
       if (process.argv.includes('--workspace-tools')) {
         await migrateWorkspaceTools(tx)

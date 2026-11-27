@@ -8,6 +8,7 @@ const definitions={
   Cursor:{ endpoint:'https://api.cursor.com', environment:'CURSOR' },
   Claude:{ endpoint:'https://api.anthropic.com', environment:'ANTHROPIC' },
   Codex:{ endpoint:'https://api.openai.com', environment:'CODEX' },
+  Grok:{ endpoint:'https://api.x.ai', environment:'XAI' },
   ChatGPT:{ endpoint:'https://api.openai.com', environment:'OPENAI' },
   Vercel:{ endpoint:'https://api.vercel.com', environment:'VERCEL' },
   Supabase:{ endpoint:'https://api.supabase.com', environment:'SUPABASE' },
@@ -21,7 +22,7 @@ const definitions={
   Netlify:{ endpoint:'https://api.netlify.com', environment:'NETLIFY' },
 }
 
-export const promptProviders=['Claude','Codex','ChatGPT']
+export const promptProviders=['Claude','Codex','ChatGPT','Grok']
 
 export function validateProviderScope(provider,scope){
   if (!Object.hasOwn(definitions,provider)) return false
@@ -107,6 +108,12 @@ export async function checkDeveloperConnection(connection){
     await call(connection,'/v1/agents?limit=1')
     return {name:'Cloud Agents'}
   }
+  if(provider==='Grok'){
+    const result=await call(connection,'/v1/models')
+    if(!Array.isArray(result?.data) || !result.data.some(model=>model.id===connection.external_scope))
+      throw fail(409,'Choose an xAI model available to this API key.')
+    return {name:connection.external_scope}
+  }
   if(promptProviders.includes(provider)) {
     const model=await call(connection,'/v1/models/'+scope)
     if(!model.id) throw fail(502,'The provider did not return a model ID.')
@@ -146,6 +153,14 @@ export async function developerStatus(connection,link){
 }
 
 export async function runDeveloperModel(connection,prompt){
+  if(connection.provider==='Grok'){
+    const result=await call(connection,'/v1/chat/completions',{
+      model:connection.external_scope,max_tokens:1000,messages:[{role:'user',content:prompt}],
+    })
+    const answer=result?.choices?.[0]?.message?.content
+    if(typeof answer!=='string' || !answer.trim()) throw fail(502,'Grok did not return a text response.')
+    return answer.trim().slice(0,16000)
+  }
   if(connection.provider!=='Claude'){
     const result=await call(connection,'/v1/responses',{model:connection.external_scope,input:prompt,max_output_tokens:1000,store:false})
     const output=result.output?.flatMap(item=>item.content??[]).filter(item=>item.type==='output_text').map(item=>item.text).join('\n').trim()
@@ -217,7 +232,7 @@ export async function stripeCollections(connection,start,end,app){
 
 function stackWorkflow(connection){
   const [owner,repo,ref]=connection.external_scope.split('/').map(encodeURIComponent)
-  return {path:'/repos/'+owner+'/'+repo+'/actions/workflows/mydev-release.yml',ref}
+  return {path:'/repos/'+owner+'/'+repo+'/actions/workflows/mydev-release.yml',repository:owner+'/'+repo,ref}
 }
 
 export async function dispatchStack(connection,revision,requestId){
@@ -228,4 +243,15 @@ export async function dispatchStack(connection,revision,requestId){
   }catch(error){
     return error.providerStatus>=400 && error.providerStatus<500 && error.providerStatus!==429 ? 'rejected' : 'uncertain'
   }
+}
+
+export async function stackRunStatus(connection,requestId){
+  const {path,repository}=stackWorkflow(connection)
+  const result=await call(connection,path+'/runs?event=workflow_dispatch&per_page=50')
+  const run=result?.workflow_runs?.find(item=>item.display_title==='MyDev release '+requestId && Number.isSafeInteger(item.id))
+  if(!run) return {found:false}
+  const jobs=await call(connection,'/repos/'+repository+'/actions/runs/'+run.id+'/jobs?per_page=100')
+  return {found:true,status:run.status,conclusion:run.conclusion,
+    url:'https://github.com/'+repository+'/actions/runs/'+run.id,
+    jobs:(jobs.jobs??[]).map(job=>({id:job.id,name:String(job.name).slice(0,120),status:job.status,conclusion:job.conclusion}))}
 }

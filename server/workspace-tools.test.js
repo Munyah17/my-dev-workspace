@@ -158,6 +158,14 @@ test('workspace tools preserve document totals, payroll scope, provider boundari
       assert.equal(options.headers.Authorization,'Bearer fixture-actions-token')
       const path=new URL(url).pathname
       if(path===stackPath) return Response.json({state:'active'})
+      if(path===stackPath+'/runs') return Response.json({workflow_runs:[
+        {id:99,display_title:'Another release'},
+        {id:42,display_title:'MyDev release '+intent.requestId,status:'completed',conclusion:'failure'},
+      ]})
+      if(path==='/repos/fixture/site/actions/runs/42/jobs') return Response.json({jobs:[
+        {id:1,name:'Deploy Vercel',status:'completed',conclusion:'success'},
+        {id:2,name:'Deploy Cloudflare Workers',status:'completed',conclusion:'failure'},
+      ]})
       assert.equal(path,stackPath+'/dispatches')
       assert.deepEqual(JSON.parse(options.body),{ref:'main',inputs:{revision:intent.revision,request_id:intent.requestId}})
       sends++
@@ -176,6 +184,26 @@ test('workspace tools preserve document totals, payroll scope, provider boundari
     }))
     assert.deepEqual(await tools('stack-deploy',intent),{state:'accepted'})
     assert.equal(sends,1)
+    const statusPath='stack-deploy/'+intent.requestId+'?workspace=demo'
+    await assert.rejects(tools(statusPath,undefined,'gents'),{status:404})
+    const status=await tools(statusPath)
+    assert.equal(status.url,'https://github.com/fixture/site/actions/runs/42')
+    assert.deepEqual(status.jobs.map(job=>job.conclusion),['success','failure'])
+    await tools('connections',{workspace,provider:'Grok',scope:'grok-fixture',apiKey:'fixture-xai-token'})
+    globalThis.fetch=async(url,options)=>{
+      assert.equal(new URL(url).hostname,'api.x.ai')
+      assert.equal(options.headers.Authorization,'Bearer fixture-xai-token')
+      if(options.method==='GET'){
+        assert.equal(new URL(url).pathname,'/v1/models')
+        return Response.json({data:[{id:'grok-fixture'}]})
+      }
+      assert.equal(new URL(url).pathname,'/v1/chat/completions')
+      assert.equal(JSON.parse(options.body).model,'grok-fixture')
+      return Response.json({choices:[{message:{content:'xAI fixture response'}}]})
+    }
+    await tools('connections/Grok/check',{workspace})
+    await tools('runs',{task:task.id,provider:'Grok',prompt:'Summarize this task.'})
+    assert.ok((await tools('runs')).some(item=>item.provider==='Grok' && item.response==='xAI fixture response'))
     const link=await tools('links',{task:task.id,provider:'Cursor',title:'Review agent',url:'https://cursor.com/agents/bc-fixture'})
     assert.equal((await tools('links')).links[0].id,link.id)
     assert.deepEqual(await call('platform','access'),{allowed:false})

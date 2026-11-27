@@ -1,12 +1,13 @@
 import { useState } from 'react'
+import { buildStackWorkflow,stackTargets } from './stack-workflow.js'
 import { useRecord } from './useRecord.js'
 
-const aiProviders=['Devin','Cursor','Claude','Codex','ChatGPT']
+const aiProviders=['Devin','Cursor','Claude','Codex','ChatGPT','Grok']
 const infrastructure=['Vercel','Supabase','Cloudflare','Firebase','Netlify','WHM','cPanel']
 const operationsProviders=['Stripe','Sentry','GitHub Actions']
-const promptProviders=['Claude','Codex','ChatGPT']
+const promptProviders=['Claude','Codex','ChatGPT','Grok']
 const scopeLabels={
-  Devin:'Devin organization ID',Claude:'Claude model ID',Codex:'OpenAI Codex model ID',ChatGPT:'OpenAI GPT model ID',
+  Grok:'xAI model ID',Devin:'Devin organization ID',Claude:'Claude model ID',Codex:'OpenAI Codex model ID',ChatGPT:'OpenAI GPT model ID',
   Vercel:'Vercel project ID or project ID/team ID',Supabase:'Supabase project reference',Cloudflare:'Cloudflare zone ID',
   Firebase:'Firebase project ID',Netlify:'Netlify site ID',
   'GitHub Actions':'Repository and workflow ref (owner/repo/ref)',
@@ -119,8 +120,47 @@ function AgencyIntegrations({api,workspace,action,busy,providers}){
   </section>
 }
 
+function StackSetup({connection}){
+  const [targets,setTargets]=useState(['vercel'])
+  const generated=buildStackWorkflow(targets)
+  return <section className="monitor-details">
+    <h3>Development tools and deployment setup</h3>
+    <div className="fields">
+      <p><strong>Use the same GitHub repository.</strong> Use the shared checkout in tools such as Cursor, Claude Code, VS Code, Visual Studio, and Windsurf. For tools such as Grok Build, Lovable, Aura.build, Muse, or Grok bots, use this flow wherever the tool supports GitHub sync or source export.</p>
+      <p>MyDev connects supported APIs separately. The Grok connection runs xAI prompts. It does not launch a Grok Build session or connect a bot.</p>
+      {connection && <a href={'https://github.com/'+connection.external_scope.split('/').slice(0,2).join('/')} target="_blank" rel="noreferrer">Open release repository</a>}
+    </div>
+    <details className="monitor-details">
+      <summary>Build a multi-target release workflow</summary>
+      <p>Choose destinations, then commit the generated file as <code>.github/workflows/mydev-release.yml</code> in a Node repository with a lockfile and test script. Configure and protect each named GitHub environment before dispatch.</p>
+      <fieldset className="fields">
+        <legend>Deployment targets</legend>
+        {Object.entries(stackTargets).map(([key,target])=><div key={key}>
+          <label className="checkbox"><input type="checkbox" checked={targets.includes(key)} onChange={event=>{
+            const checked=event.target.checked
+            setTargets(current=>checked?[...current,key]:current.filter(item=>item!==key))
+          }} />{target.label}</label>
+          {targets.includes(key) && <small><code>mydev-{key}</code> · {target.setup}</small>}
+        </div>)}
+      </fieldset>
+      {generated && <div className="fields">
+        <label>GitHub Actions workflow<textarea readOnly rows="10" value={generated} /></label>
+        <button type="button" onClick={()=>{
+          const url=URL.createObjectURL(new Blob([generated],{type:'text/yaml'}))
+          const link=document.createElement('a')
+          link.href=url
+          link.download='mydev-release.yml'
+          link.click()
+          setTimeout(()=>URL.revokeObjectURL(url),1000)
+        }}>Download workflow</button>
+      </div>}
+    </details>
+  </section>
+}
+
 function StackDeploy({api,revision,action,busy,connection}){
   const workspace=connection.workspace_id
+  const [results,setResults]=useState({})
   const history=useRecord(api,'developer-tools/stack-deploy?'+new URLSearchParams({workspace}),revision)
   return <section className="monitor-details">
     <h3>Deploy your stack</h3>
@@ -139,7 +179,18 @@ function StackDeploy({api,revision,action,busy,connection}){
         rejected:'GitHub rejected dispatch.',
         uncertain:'Delivery uncertain. Check GitHub before retrying.',
       }[item.state]}</small></div>
-      <a href={'https://github.com/'+item.scope.split('/').slice(0,2).join('/')+'/actions/workflows/mydev-release.yml'} target="_blank" rel="noreferrer">Workflow runs</a>
+      <div>
+        {item.state!=='rejected' && <button disabled={busy} onClick={()=>action(async()=>{
+          const result=await api('developer-tools/stack-deploy/'+item.request_id+'?'+new URLSearchParams({workspace}))
+          setResults(current=>({...current,[item.request_id]:result}))
+        })}>Check target results</button>}
+        {results[item.request_id]?.found===false && <small>No matching GitHub run found yet.</small>}
+        {results[item.request_id]?.found && <>
+          <a href={results[item.request_id].url} target="_blank" rel="noreferrer">Open run</a>
+          <small>{results[item.request_id].conclusion??results[item.request_id].status}</small>
+          {results[item.request_id].jobs.map(job=><small key={job.id}>{job.name} · {job.conclusion??job.status}</small>)}
+        </>}
+      </div>
     </div>)}
   </section>
 }
@@ -187,6 +238,7 @@ export function DeveloperTools({api,revision,action,busy}){
         {!useReference && provider==='Firebase' && <small>Use a Google OAuth access token with access to this project.</small>}
         {!useReference && provider==='Supabase' && <small>Use a personal access token from your Supabase account settings.</small>}
         {!useReference && ['Codex','ChatGPT'].includes(provider) && <small>Use an OpenAI API key and a model ID available to that API project.</small>}
+        {!useReference && provider==='Grok' && <small>Use an xAI API key and a model ID available to your xAI project.</small>}
         {!useReference && provider==='Stripe' && <small>Use a live restricted key with account and charges read access.</small>}
         {!useReference && provider==='GitHub Actions' && <small>Use a fine-grained GitHub token with Actions write access for the selected repository.</small>}
         {!useReference && provider==='Sentry' && <small>Use a Sentry token with project and event read access.</small>}
@@ -213,6 +265,7 @@ export function DeveloperTools({api,revision,action,busy}){
       </article>
       })}
     </section>)}
+    {canEdit && <StackSetup connection={releaseConnection} />}
     {canEdit && releaseConnection && <StackDeploy api={api} revision={revision} action={action} busy={busy} connection={releaseConnection} />}
     {canEdit && <AgencyIntegrations api={api} workspace={selected} action={action} busy={busy}
       providers={catalog.value?.connections.filter(item=>item.workspace_id===selected && item.checked_at).map(item=>item.provider)??[]} key={selected} />}
