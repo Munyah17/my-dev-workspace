@@ -140,3 +140,13 @@ Convert an accepted quote from Billing or Orders. The order keeps the original l
 Transactions combines issued invoices, manually recorded receipts, and supplier expenses by currency. Order totals do not add a second sale to that report. An expense can include a private receipt and a project or supplier subscription link. A supplier reminder does not post an expense or payment.
 
 For other environments, apply `npm run operations:migrate` after the billing schema. The Phase 5 migration was applied to MyDev Workspace Supabase project `tmtxchjvlkaemtimzwbc`. The live schema reports 10 operational tables with row-level security and the stock audit trigger. Operational workflow tests use embedded Postgres and the local demo browser.
+
+## AI tools and Accounts & ERP
+
+Workspace Settings includes Devin, Cursor, and Claude. Workspace owners register a provider and a server credential reference. The setup card shows the exact environment variable name for the workspace. Set that variable on the Vercel backend and redeploy, then test the connection in Settings. Devin requires an organization ID and Claude requires a model ID. Configure scoped keys in each provider. MyDev links Devin and Cursor sessions to tasks and reads their current status. Claude can answer a task prompt inside MyDev. Linked Devin and Cursor work is started in those products.
+
+Accounts & ERP groups CRM, quotations, invoices, orders, inventory, transactions, billing service defaults, printable document generators, and private HR records. Credit and debit notes are printable records. Their creation leaves the invoice ledger unchanged. Payroll records use entered base earnings and deductions plus approved bonuses and reported hours. Tax calculation, filing, and payment remain separate.
+
+The platform portal has a separate database-only administrator grant in `workspace_private.platform_administrators`. An agency owner does not inherit it. The portal shows workspace counts, plan, and lifecycle metadata with audit history. It does not charge tenants or enforce a suspension.
+
+Apply `npm run workspace-tools:migrate` after the maintenance and billing schemas in a new environment.

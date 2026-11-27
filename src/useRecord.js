@@ -5,11 +5,19 @@ export function useRecord(api, path, revision) {
   useEffect(() => {
     if (!path) return
     let active = true
-    const refresh = () => api(path).then(value => { if (active) setRecord({ path, value }) })
-      .catch(error => { if (active) setRecord({ path, error: error.message }) })
+    let timer
+    const refresh = async () => {
+      try {
+        const value = await api(path)
+        if (active) setRecord({ path, value })
+      } catch (error) {
+        if (active) setRecord(previous => ({ path, value:previous.path===path ? previous.value : undefined,error:error.message }))
+      } finally {
+        if (active) timer = setTimeout(refresh,4000)
+      }
+    }
     refresh()
-    const timer = setInterval(refresh, 4000)
-    return () => { active = false; clearInterval(timer) }
+    return () => { active = false; clearTimeout(timer) }
   }, [api, path, revision])
   return record.path === path ? record : {}
 }

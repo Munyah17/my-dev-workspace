@@ -1,0 +1,16 @@
+import { expect,test } from '@playwright/test'
+
+test('agency can find all AI providers and generate a printable proposal',async({page})=>{
+  await page.goto('/')
+  await page.getByRole('button',{name:'Agency'}).click()
+  await page.getByRole('link',{name:'Workspace settings',exact:true}).click()
+  await expect(page.getByRole('heading',{name:'AI agents and models'})).toBeVisible()
+  for(const provider of ['Devin','Cursor','Claude']) await expect(page.locator('strong').getByText(provider,{exact:true})).toBeVisible()
+  await page.getByRole('link',{name:'Accounts & ERP',exact:true}).click()
+  await page.getByRole('textbox',{name:'Title',exact:true}).fill('Maintenance proposal '+Date.now())
+  await page.getByRole('textbox',{name:'Document body'}).fill('Review the staging workflow.')
+  await page.getByRole('button',{name:'Generate and save document'}).click()
+  await expect(page.getByText('Review the staging workflow.',{exact:true})).toBeVisible()
+  await expect(page.getByRole('button',{name:'Print or save as PDF'})).toBeVisible()
+  await expect(page.getByRole('link',{name:'Platform admin',exact:true})).toHaveCount(0)
+})

@@ -202,10 +202,16 @@ export async function billingRoute(tx,{ method,pathname,body,account,search }) {
       requireStaff(body.workspace)
       if (!['collection','supplier','domain'].includes(body.kind)) throw fail(400,'Choose a renewal type.')
       if (body.organization && !(await orgs(body.workspace)).some(org=>org.id===body.organization)) throw fail(404,'Client not found.')
-      return (await query(`INSERT INTO billing_services(workspace_id,organization_id,name,supplier,domain,kind,currency,amount_minor,interval_months,due_on,reminder_days,notes)
+      const [service]=(await query(`INSERT INTO billing_services(workspace_id,organization_id,name,supplier,domain,kind,currency,amount_minor,interval_months,due_on,reminder_days,notes)
         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,[body.workspace,body.organization || null,text(body.name),
         text(body.supplier,160,false),text(body.domain,253,false),body.kind,currency(body.currency),integer(body.amount,0,100000000000),
-        integer(body.interval,1,120),date(body.due),integer(body.reminder,0,365),text(body.notes,2000,false)]))[0]
+        integer(body.interval,1,120),date(body.due),integer(body.reminder,0,365),text(body.notes,2000,false)]))
+      if(body.serviceType){
+        const [type]=await query('SELECT id FROM erp_service_types WHERE id=$1 AND workspace_id=$2',[id(body.serviceType),body.workspace])
+        if(!type) throw fail(404,'Billing service type not found.')
+        await query('UPDATE billing_services SET service_type=$2 WHERE id=$1',[service.id,type.id])
+      }
+      return service
     }
     if (method==='POST' && key && operation==='advance') {
       const [service]=await query(`UPDATE billing_services SET last_confirmed_at=confirmed_at,confirmed_at=NULL,

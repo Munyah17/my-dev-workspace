@@ -102,7 +102,7 @@ export function Apps({ data, id, api, revision, busy, action }) {
         <button className="primary" onClick={() => setAdding(value => !value)}>{adding ? 'Close form' : 'Add monitor'}</button>
       </div>
       {(projects.error || workflows.error) && <p role="alert" className="error">{projects.error || workflows.error}</p>}
-      <label className="search">{adding ? 'App' : 'Project'}<select value={project} onChange={event => setProject(event.target.value)}>
+      <label className="search app-picker">{adding ? 'App' : 'Project'}<select value={project} onChange={event => setProject(event.target.value)}>
           <option value="">Choose an app</option>{projects.value?.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}
         </select></label>
       {projectDetails.value && <details className="monitor-details">

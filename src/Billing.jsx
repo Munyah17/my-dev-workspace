@@ -77,9 +77,9 @@ export function CRM({ api,revision,action,busy,recordId }) {
     })}}>
       <label>Organization name<input name="name" required /></label>{clientFields()}<button disabled={busy || !workspace}>Create client</button>
     </form>}
-    <div className="monitor-actions">
-      <label>Search clients <input value={search} onChange={event=>setSearch(event.target.value)} /></label>
-      <label>Status <select value={status} onChange={event=>setStatus(event.target.value)}><option value="">All</option><option>Active</option><option>Inactive</option></select></label>
+    <div className="crm-filters">
+      <label className="crm-search">Search clients<span className="crm-search-control"><span className="crm-search-icon" aria-hidden="true" /><input type="search" placeholder="Search by organization name" value={search} onChange={event=>setSearch(event.target.value)} /></span></label>
+      <label className="search app-picker">Status <select value={status} onChange={event=>setStatus(event.target.value)}><option value="">All</option><option>Active</option><option>Inactive</option></select></label>
     </div>
     {listing.value?.filter(item=>!status || item.status===status).map(item=><a className="row ticket-link" key={item.id} href={'#crm/'+item.id}>
       <div><strong>{item.name}</strong><small>{item.email || item.phone}</small></div><span className="badge">{item.status}</span>
@@ -219,26 +219,37 @@ function BillingOverview({ api,revision,action,busy }) {
 function Services({ api,revision,action,busy,recordId }) {
   const [adding,setAdding]=useState(false)
   const [choice,setChoice]=useState('')
+  const [defaults,setDefaults]=useState(null)
   const setup=useRecord(api,'billing/summary'+(choice?'?workspace='+encodeURIComponent(choice):''),revision)
   const services=useRecord(api,'billing/services',revision)
   const list=services.value?.filter(item=>!recordId || recordId===item.id)
   const scopes=setup.value?.scopes ?? []
   const workspace=choice || scopes[0]?.id
+  const templates=useRecord(api,workspace?'erp/service-types?workspace='+encodeURIComponent(workspace):null,revision)
   return <section className="panel"><a href="#billing">Billing documents</a><h2>Services and renewals</h2>
     <p className="empty">Reminders appear in the app. Email and push delivery are unconfigured.</p>
     {workspace && !recordId && <button className="primary" onClick={()=>setAdding(!adding)}>{adding?'Close form':'Add service or renewal'}</button>}
     {adding && <form className="fields" onSubmit={event=>{const values=form(event);action(async()=>{
-      const result=await api('billing/services',{ ...values,workspace,currency:values.currency.toUpperCase(),amount:minor(values.amount),interval:Number(values.interval),reminder:Number(values.reminder) })
+      const result=await api('billing/services',{ ...values,workspace,serviceType:defaults?.id,currency:values.currency.toUpperCase(),amount:minor(values.amount),interval:Number(values.interval),reminder:Number(values.reminder) })
       window.location.hash='billing/service-'+result.id
     })}}>
       <Workspace scopes={scopes} value={workspace} setValue={setChoice} />
-      <label>Name<input name="name" required /></label>
-      <label>Type<select name="kind">{Object.entries(actions).map(([key,label])=><option value={key} key={key}>{label}</option>)}</select></label>
+      {templates.value && <label>Billing service type<select name="serviceType" onChange={event=>{
+        const value=event.target.value
+        const type=templates.value.custom.find(item=>item.id===value)
+        const preset=templates.value.defaults.find(([name])=>name===value)
+        setDefaults(type??(preset?{name:preset[0],direction:preset[1],interval_months:preset[2],reminder_days:7}:null))
+      }}><option value="">Custom service</option>
+        <optgroup label="Saved types">{templates.value.custom.map(type=><option value={type.id} key={type.id}>{type.name}</option>)}</optgroup>
+        <optgroup label="Starter types">{templates.value.defaults.map(([name])=><option value={name} key={name}>{name}</option>)}</optgroup>
+      </select></label>}
+      <label>Name<input name="name" key={defaults?.name} defaultValue={defaults?.name} required /></label>
+      <label>Type<select name="kind" key={defaults?.direction} defaultValue={defaults?.direction??'collection'}>{Object.entries(actions).map(([key,label])=><option value={key} key={key}>{label}</option>)}</select></label>
       <label>Client (optional)<select name="organization"><option value="">Agency-wide</option>{setup.value?.organizations.map(org=><option key={org.id} value={org.id}>{org.name}</option>)}</select></label>
       <label>Supplier<input name="supplier" /></label><label>Domain<input name="domain" /></label>
       <label>Amount<input name="amount" min="0" step=".01" type="number" required /></label><label>Currency<input name="currency" defaultValue="USD" maxLength="3" required /></label>
-      <label>Interval in months<input name="interval" defaultValue="1" min="1" max="120" type="number" required /></label>
-      <label>Next due date<input name="due" type="date" required /></label><label>Remind days before<input name="reminder" defaultValue="7" min="0" max="365" type="number" required /></label>
+      <label>Interval in months<input name="interval" key={defaults?.interval_months} defaultValue={defaults?.interval_months??1} min="1" max="120" type="number" required /></label>
+      <label>Next due date<input name="due" type="date" required /></label><label>Remind days before<input name="reminder" key={defaults?.reminder_days} defaultValue={defaults?.reminder_days??7} min="0" max="365" type="number" required /></label>
       <label>Notes<textarea name="notes" /></label><button disabled={busy}>Save service</button>
     </form>}
     {services.error && <p className="error" role="alert">{services.error}</p>}

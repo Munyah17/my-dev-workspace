@@ -192,12 +192,14 @@ export function Integrations({ api, revision, action, busy }) {
   const [project,setProject] = useState('')
   const [environment,setEnvironment] = useState('Staging')
   const [preview,setPreview] = useState(null)
-  if (catalog.error) return <p className="error" role="alert">{catalog.error}</p>
+  if (catalog.error && !catalog.value) return <section className="panel"><p className="error" role="alert">{catalog.error}</p>
+    <button onClick={()=>action(async()=>{await api('maintenance/catalog')})}>Retry workspace settings</button></section>
   if (!catalog.value) return <p>Opening integrations…</p>
   const { projects,connections,monitors } = catalog.value
   const name = id => projects.find(item => item.id === id)?.name ?? id
   return <section className="panel">
     <h2>Integrations</h2>
+    {catalog.error && <p className="notice" role="status">Showing the last loaded settings. Refresh will retry automatically.</p>}
     {Object.entries(labels).map(([key,label]) => <div className="row" key={key}>
       <div><strong>{label}</strong><small>{descriptions[key]}</small></div>
       {projects.some(item => item.editable) && <button onClick={() => { setProvider(key); setPreview(null) }}>Connect {label}</button>}

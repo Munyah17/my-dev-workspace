@@ -1,0 +1,20 @@
+import { expect,test } from '@playwright/test'
+
+test('Apps picker and CRM search use the workspace styling in both themes',async({page})=>{
+  await page.goto('/')
+  await page.getByRole('button',{name:'Agency'}).click()
+  await page.getByRole('link',{name:'Apps',exact:true}).click()
+  const picker=page.getByRole('combobox',{name:'Project'})
+  await expect(picker).toHaveCSS('min-height','44px')
+  await expect(picker).toHaveCSS('appearance','none')
+  await picker.selectOption('gents-staff')
+  await expect(picker).toHaveValue('gents-staff')
+  await page.getByRole('link',{name:'CRM',exact:true}).click()
+  const search=page.getByRole('searchbox',{name:'Search clients'})
+  await expect(search).toHaveCSS('min-height','44px')
+  await search.fill('Gents')
+  await expect(page.getByRole('link',{name:/The Gents/})).toBeVisible()
+  await expect(page.getByRole('link',{name:/Harbor Studio/})).toHaveCount(0)
+  await page.getByRole('switch',{name:'Dark mode'}).click()
+  await expect(search).toHaveCSS('background-color','rgb(18, 28, 48)')
+})

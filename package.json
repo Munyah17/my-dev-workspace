@@ -18,7 +18,8 @@
     "maintenance:migrate": "node server/migrate.js --maintenance",
     "billing:migrate": "node server/migrate.js --billing",
     "operations:migrate": "node server/migrate.js --operations",
-    "security:bundle": "node scripts/verify-browser-bundle.mjs"
+    "security:bundle": "node scripts/verify-browser-bundle.mjs",
+    "workspace-tools:migrate": "node server/migrate.js --workspace-tools"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.6.0",
