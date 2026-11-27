@@ -1,3 +1,4 @@
+import { Vps } from './Vps.jsx'
 import { Accounting,DeveloperTools,PlatformAdmin } from './WorkspaceTools.jsx'
 import { Inventory, OperationsAttention, Orders, Transactions } from './Operations.jsx'
 import { Billing, BillingAttention, CRM } from './Billing.jsx'
@@ -8,7 +9,7 @@ import { Apps, Incident, NeedsAttention } from './Monitoring.jsx'
 import { DueTasks, Integrations, ReleaseAttention, ReleaseBoard, TaskBoard, TicketMaintenance } from './Maintenance.jsx'
 
 const states = ['New', 'In progress', 'Awaiting agency', 'Awaiting client', 'Resolved', 'Reopened']
-const sections = { today: 'Today', inbox: 'Client inbox', maintenance: 'Private maintenance', apps: 'Apps', incident: 'Incident', tasks: 'Tasks', settings: 'Workspace settings', releases: 'Releases', crm: 'CRM', billing: 'Billing', orders: 'Orders', inventory: 'Inventory', transactions: 'Transactions', erp: 'Accounts & ERP', platform: 'Platform admin' }
+const sections = { today: 'Today', inbox: 'Client inbox', maintenance: 'Private maintenance', apps: 'Apps', incident: 'Incident', tasks: 'Tasks', settings: 'Workspace settings', releases: 'Releases', crm: 'CRM', billing: 'Billing', orders: 'Orders', inventory: 'Inventory', transactions: 'Transactions', erp: 'Accounts & ERP', vps: 'Cloud VPS', platform: 'Platform admin' }
 const date = value => new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(value))
 
 async function api(path, body) {
@@ -203,7 +204,7 @@ export default function App() {
     </div>
   </main>
 
-  const privateMonitoring = (['apps','incident','tasks','settings','releases'].includes(route.section) && !user.agency) || (['crm','inventory','transactions','erp'].includes(route.section) && !user.billing)
+  const privateMonitoring = (['apps','incident','tasks','settings','releases','vps'].includes(route.section) && !user.agency) || (['crm','inventory','transactions','erp'].includes(route.section) && !user.billing)
   const section = (route.section === 'maintenance' && !user.agency) || privateMonitoring ? 'inbox' : route.section
   const visibleTicket = ticket?.id === route.id ? ticket : null
   const unread = notifications.filter(item => !item.read)
@@ -232,7 +233,7 @@ export default function App() {
         <div className="heading">
           <div><h1>{sections[section]}</h1>
             <p>{section === 'today' ? 'Support activity across your authorized projects.' : section === 'inbox' ? 'Report an issue and keep the conversation in one place.' : section === 'maintenance' ? 'Review tickets, record internal notes, and prepare staging work.' : null}</p></div>
-          {!['apps','incident','tasks','settings','releases','crm','billing','orders','inventory','transactions','erp','platform'].includes(section) && <a className="primary" href="#inbox/new">{user.agency ? 'New ticket' : 'Report an issue'}</a>}
+          {!['apps','incident','tasks','settings','releases','crm','billing','orders','inventory','transactions','erp','vps','platform'].includes(section) && <a className="primary" href="#inbox/new">{user.agency ? 'New ticket' : 'Report an issue'}</a>}
         </div>
         {privateMonitoring ? <section className="panel"><p role="alert">Page not found.</p></section> : section === 'today' ? <>
           <div className="metrics">
@@ -260,6 +261,7 @@ export default function App() {
         : section === 'orders' ? <Orders api={api} revision={revision} action={action} busy={busy} recordId={route.id} />
         : section === 'inventory' ? <Inventory api={api} revision={revision} action={action} busy={busy} recordId={route.id} />
         : section === 'transactions' ? <Transactions api={api} revision={revision} action={action} busy={busy} />
+        : section === 'vps' ? <Vps api={api} revision={revision} action={action} busy={busy} platform={platform.value?.allowed} />
         : section === 'platform' ? <PlatformAdmin api={api} revision={revision} action={action} busy={busy} />
         : section === 'erp' ? <Accounting api={api} revision={revision} action={action} busy={busy} recordId={route.id} />
         : section === 'settings' ? <>

@@ -1,3 +1,4 @@
+import { vpsLane } from './vps.js'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { openDatabase, scopedTransaction } from '../server/database.js'
 import { browserCheck } from './browser.js'
@@ -55,7 +56,7 @@ async function lane(kind) {
 }
 
 try {
-  await Promise.all([lane('availability'), lane('workflow'), maintenanceLane(process.env.MAINTENANCE_DATABASE_URL,stop.signal),billingLane(process.env.BILLING_DATABASE_URL,stop.signal)])
+  await Promise.all([lane('availability'), lane('workflow'), maintenanceLane(process.env.MAINTENANCE_DATABASE_URL,stop.signal),billingLane(process.env.BILLING_DATABASE_URL,stop.signal),vpsLane(process.env.VPS_DATABASE_URL,stop.signal).catch(error=>console.error('VPS lane stopped:',error.code??error.name))])
 } finally {
   await db.close()
 }

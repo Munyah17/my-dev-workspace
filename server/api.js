@@ -1,10 +1,11 @@
+import { vpsRoute } from './vps.js'
 import { workspaceToolsRoute } from './workspace-tools.js'
 import { operationsRoute } from './operations.js'
 import { billingRoute } from './billing.js'
 import { createHash, randomBytes, scryptSync } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { openDatabase, scopedTransaction } from './database.js'
-import { migrateAgencyIntegrations, migrateBilling, migrateBillingEditor, migrateIntegrationCatalog, migrateIntegrationCredentials, migrateMaintenance, migrateMonitoring, migrateOperations, migrateWorkspaceTools } from './migrate.js'
+import { migrateAgencyIntegrations, migrateBilling, migrateBillingEditor, migrateIntegrationCatalog, migrateIntegrationCredentials, migrateMaintenance, migrateMonitoring, migrateOperations, migrateVps, migrateWorkspaceTools } from './migrate.js'
 import { monitoringReady, monitoringRoute } from './monitoring.js'
 import { maintenanceRoute } from './maintenance.js'
 
@@ -42,6 +43,7 @@ export async function initialize(db, demo) {
     await migrateIntegrationCatalog(tx)
     await migrateIntegrationCredentials(tx)
     await migrateAgencyIntegrations(tx)
+    await migrateVps(tx)
     if (!demo) return
     const seeded = await tx.query("SELECT id FROM workspaces WHERE id='demo'")
     if (seeded.rows.length) return
@@ -216,6 +218,7 @@ export async function createApi({ dataDir, demo = false, supabase } = {}) {
             if (['/api/tickets','/api/projects','/api/notifications'].includes(url)) return readCore(url)
           }
           if (url.startsWith('/api/erp/') || url.startsWith('/api/developer-tools/') || url.startsWith('/api/platform/')) return workspaceToolsRoute(tx,{ method,pathname:url,body,account,search:new URL(req.url,'http://localhost').searchParams })
+          if (url === '/api/vps' || url.startsWith('/api/vps/')) return vpsRoute(tx,{method,pathname:url,body,search:new URL(req.url,'http://localhost').searchParams})
           if (url.startsWith('/api/operations/')) return operationsRoute(tx,{ method,pathname:url,body,account,search:new URL(req.url,'http://localhost').searchParams })
           if (url.startsWith('/api/billing/')) return billingRoute(tx, { method, pathname:url, body, account, search:new URL(req.url,'http://localhost').searchParams })
           if (url.startsWith('/api/maintenance/')) return maintenanceRoute(tx, { method, pathname: url, body, account })
