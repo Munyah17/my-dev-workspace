@@ -13,6 +13,11 @@ function publicUrl(value, allowedPort='') {
 
 export const monitorUrl = value => publicUrl(value)
 
+export function cpanelUrl(value) {
+  const url = new URL(value)
+  return publicUrl(value, url.port === '2083' ? '2083' : '')
+}
+
 export async function publicAddress(hostname, resolve = lookup) {
   const addresses = await resolve(hostname, { all: true })
   if (!addresses.length || addresses.some(({ address }) => {

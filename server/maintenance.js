@@ -1,4 +1,4 @@
-import { monitorUrl } from '../worker/network.js'
+import { cpanelUrl,monitorUrl } from '../worker/network.js'
 
 const uuid = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i
 const taskStates = ['Open','In progress','Awaiting review','Done']
@@ -42,9 +42,9 @@ function config(provider, input) {
   let origin, panel
   try {
     origin = monitorUrl(input.site).origin
-    panel = monitorUrl(input.panel).origin
+    panel = cpanelUrl(input.panel).origin
   } catch {
-    throw fail(400, 'Use public HTTPS origins for the site and cPanel service subdomain.')
+    throw fail(400, 'Use a public HTTPS site and a public cPanel HTTPS origin on port 443 or 2083.')
   }
   const root = text(input.root,250)
   const repositoryRoot = text(input.repositoryRoot,250)

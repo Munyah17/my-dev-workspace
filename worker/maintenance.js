@@ -7,7 +7,7 @@ import { promisify } from 'node:util'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { openDatabase, scopedTransaction } from '../server/database.js'
 import { browserCheck } from './browser.js'
-import { httpsObservation } from './network.js'
+import { cpanelUrl,httpsObservation } from './network.js'
 
 const exec = promisify(execFile)
 const revision = /^[0-9a-f]{40}$/
@@ -61,10 +61,11 @@ async function cpanel(connection, project) {
   const config = connection.configuration
   if (!/^[a-zA-Z0-9_]+$/.test(credentials.username) || credentials.username !== connection.account_name ||
     typeof credentials.token !== 'string' || !/^[\x21-\x7e]+$/.test(credentials.token)) throw Error('Invalid cPanel credential configuration.')
-  const endpoint = new URL('/execute/VersionControl/retrieve',config.panel)
+  const panel = cpanelUrl(config.panel)
+  const endpoint = new URL('/execute/VersionControl/retrieve',panel)
   endpoint.searchParams.set('repository_root',config.repositoryRoot)
   const response = await httpsObservation(endpoint.href,{
-    signal:timeout(),includeBody:true,followRedirects:false,headers:{ Authorization:'cpanel ' + credentials.username + ':' + credentials.token },
+    signal:timeout(),includeBody:true,followRedirects:false,hostingPort:panel.port||undefined,headers:{ Authorization:'cpanel ' + credentials.username + ':' + credentials.token },
   })
   if (response.status !== 200 || JSON.parse(response.body).status !== 1) throw Error('The cPanel repository could not be verified.')
 }

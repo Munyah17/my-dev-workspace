@@ -49,7 +49,7 @@ test('maintenance links tasks, fences job retries, and gates exact revision appr
       request('connections',{ provider,project,environment,account:'pilot',secretRef:'PILOT',configuration })
     await connection('github',{ repository:'agency/gents',branch:'main',installation:'1234',paths:'index.php' })
     await connection('agent',{ model:'approved-model' })
-    const cpanelConfig = { panel:'https://panel.example.test',root:'/home/pilot/html',repositoryRoot:'/home/pilot/git',
+    const cpanelConfig = { panel:'https://panel.example.test:2083',root:'/home/pilot/html',repositoryRoot:'/home/pilot/git',
       baseline:base,failureStep:'Staff',exclusions:'Uploaded media and runtime configuration' }
     await assert.rejects(connection('cpanel',{ ...cpanelConfig,site:'https://stage.example.test',monitor:stagingMonitor.id },'Staging','harbor-site'),{ status:400 })
     await connection('cpanel',{ ...cpanelConfig,site:'https://stage.example.test',monitor:stagingMonitor.id },'Staging')

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { monitorUrl, publicAddress } from './network.js'
+import { cpanelUrl, monitorUrl, publicAddress } from './network.js'
 
 test('monitor destinations reject local, credential-bearing or non-HTTPS URLs and mixed DNS results', async () => {
   for (const input of ['http://example.com','https://localhost','https://u:p@example.com','https://example.com:444','https://example.com/#fragment']) {
@@ -12,4 +12,13 @@ test('monitor destinations reject local, credential-bearing or non-HTTPS URLs an
     ]))
   }
   assert.equal((await publicAddress('example.com', async () => [{ address:'93.184.216.34',family:4 }])).address,'93.184.216.34')
+})
+
+
+test('cPanel accepts its direct account port without expanding monitor access', () => {
+  assert.equal(cpanelUrl('https://host.example.com:2083').port,'2083')
+  assert.equal(cpanelUrl('https://cpanel.example.com').port,'')
+  assert.throws(()=>cpanelUrl('https://host.example.com:2087'))
+  assert.throws(()=>cpanelUrl('https://user:token@host.example.com:2083'))
+  assert.throws(()=>monitorUrl('https://host.example.com:2083'))
 })

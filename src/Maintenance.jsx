@@ -176,7 +176,7 @@ const descriptions = {
 const entries = {
   github:[['installation','GitHub App installation ID'],['repository','Owner/repository'],['branch','Release branch'],['paths','Allowed PHP paths (comma-separated)']],
   agent:[['model','OpenAI model']],
-  cpanel:[['panel','cPanel HTTPS service origin'],['site','Public site HTTPS origin'],['root','Document root'],['repositoryRoot','cPanel repository root'],['baseline','Known baseline commit SHA'],['exclusions','Runtime files, media and persistent data to exclude']],
+  cpanel:[['panel','cPanel HTTPS origin (443 or 2083)'],['site','Public site HTTPS origin'],['root','Document root'],['repositoryRoot','cPanel repository root'],['baseline','Known baseline commit SHA'],['exclusions','Runtime files, media and persistent data to exclude']],
 }
 
 const state = value => ({
@@ -198,7 +198,17 @@ export function Integrations({ api, revision, action, busy }) {
   const { projects,connections,monitors } = catalog.value
   const name = id => projects.find(item => item.id === id)?.name ?? id
   return <section className="panel">
-    <h2>Integrations</h2>
+    <h2>Project connections</h2>
+    <details className="monitor-details">
+      <summary>Set up a PHP app on cPanel</summary>
+      <ol>
+        <li>Register the PHP app in <a href="#apps">Apps</a>. Keep staging and production separate.</li>
+        <li>Create a staging browser check with an isolated account and a read-only production check.</li>
+        <li>Connect the selected GitHub repository and cPanel account here. Use the cPanel account that hosts the app for release checks.</li>
+        <li>Use cPanel Git Version Control to deploy from the repository. Serve <code>/release.json</code> with the deployed commit and verify the revision in <a href="#releases">Releases</a>.</li>
+      </ol>
+      <p>For reseller account inventory, connect WHM in <a href="#settings">Integrations</a> and open <a href="#settings/operations">Operations</a>.</p>
+    </details>
     {catalog.error && <p className="notice" role="status">Showing the last loaded settings. Refresh will retry automatically.</p>}
     {Object.entries(labels).map(([key,label]) => <div className="row" key={key}>
       <div><strong>{label}</strong><small>{descriptions[key]}</small></div>
